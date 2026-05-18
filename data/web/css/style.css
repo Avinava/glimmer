@@ -1,0 +1,271 @@
+/* glimmer web UI — warm dark overlay on top of Pico.css.
+   Palette mirrors the on-device colors (see src/core/theme.h). */
+
+:root {
+  --bg:      #0E0D12;
+  --panel:   #1F1A28;
+  --panel-2: #2A2236;
+  --line:    #34293F;
+  --ink:     #FFF8E8;
+  --ink-dim: #D8CDB8;
+  --muted:   #8A7F96;
+  --coral:   #FF5247;
+  --amber:   #FFD23F;
+  --mint:    #8FE574;
+  --sky:     #54B6FF;
+  --lilac:   #C385FF;
+
+  /* Pico variable overrides */
+  --pico-background-color: var(--bg);
+  --pico-color: var(--ink);
+  --pico-muted-color: var(--muted);
+  --pico-primary: var(--coral);
+  --pico-primary-hover: #FF7A6F;
+  --pico-primary-focus: rgba(255, 82, 71, 0.25);
+  --pico-card-background-color: var(--panel);
+  --pico-card-border-color: var(--line);
+  --pico-form-element-background-color: var(--panel-2);
+  --pico-form-element-border-color: var(--line);
+  --pico-form-element-color: var(--ink);
+  --pico-h1-color: var(--ink);
+  --pico-h2-color: var(--ink);
+  --pico-h3-color: var(--ink);
+  --pico-border-radius: 6px;
+  --pico-font-family: "SF Mono", "Roboto Mono", "DM Mono", "Inconsolata", monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+main.container {
+  max-width: 960px;
+  padding-top: 32px;
+  padding-bottom: 64px;
+}
+
+/* 2-column layout on wide screens — most-glanceable info left, forms right */
+@media (min-width: 720px) {
+  section.split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  section.split article { margin-bottom: 0; }
+}
+
+/* Buttons inside articles shouldn't span full width on desktop */
+@media (min-width: 720px) {
+  button[type="submit"], button.primary {
+    width: auto;
+    min-width: 200px;
+  }
+}
+
+/* Header */
+.tv-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.tv-logo {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  image-rendering: pixelated;
+}
+.tv-logo svg { display: block; }
+.tv-wordmark {
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+.tv-version {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+/* Top-level nav */
+nav.tv-nav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+nav.tv-nav button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 0;
+  margin: 0;
+  white-space: nowrap;
+}
+nav.tv-nav button.active {
+  color: var(--ink);
+  border-bottom-color: var(--coral);
+}
+nav.tv-nav button:hover { color: var(--ink); }
+
+/* Cards */
+article {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+article h2 {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 12px;
+  font-weight: 500;
+}
+
+/* Forms */
+label {
+  display: block;
+  color: var(--ink-dim);
+  font-size: 0.8rem;
+  margin: 12px 0 4px;
+}
+label:first-of-type { margin-top: 0; }
+input, select, textarea {
+  background: var(--panel-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  font-size: 0.9rem;
+  padding: 8px 10px;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--coral);
+  outline: none;
+}
+.hint {
+  color: var(--muted);
+  font-size: 0.7rem;
+  margin-top: 4px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--ink-dim);
+  margin: 10px 0 4px;
+}
+.row input[type="checkbox"] {
+  accent-color: var(--coral);
+  margin: 0;
+}
+
+/* Info rows (status page) */
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--line);
+  font-size: 0.85rem;
+}
+.info-row:last-child { border-bottom: 0; }
+.info-row .k { color: var(--muted); }
+.info-row .v { color: var(--ink); }
+.info-row .v.amber  { color: var(--amber);  }
+.info-row .v.mint   { color: var(--mint);   }
+.info-row .v.sky    { color: var(--sky);    }
+.info-row .v.lilac  { color: var(--lilac);  }
+.info-row .v.coral  { color: var(--coral);  }
+
+/* Mini live preview of the device screen */
+.tv-preview {
+  background: #050409;
+  border-radius: 8px;
+  padding: 18px;
+  text-align: center;
+}
+.tv-preview .frame {
+  width: 240px;
+  height: 240px;
+  background: var(--bg);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border: 1px solid var(--line);
+}
+.tv-preview .frame .pip {
+  width: 60px; height: 60px;
+  background: var(--coral);
+  margin-bottom: 8px;
+  border-radius: 4px;
+}
+.tv-preview .frame .label {
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+}
+
+/* Buttons */
+button[type="submit"], button.primary {
+  background: var(--coral);
+  border: 0;
+  color: #150A08;
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.92rem;
+  width: 100%;
+  margin-top: 16px;
+}
+button[type="submit"]:hover, button.primary:hover {
+  background: #FF7A6F;
+}
+button.secondary {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+button.danger {
+  background: transparent;
+  border: 1px solid var(--coral);
+  color: var(--coral);
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--mint);
+  color: #0a1a04;
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.toast.error { background: var(--coral); color: #150A08; }

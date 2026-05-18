@@ -1,0 +1,12 @@
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/
+*.bin
+*.elf
+*.map
+/tmp/
+.DS_Store
+secrets.h
+config.json
+*.config.json

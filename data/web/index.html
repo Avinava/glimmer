@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>glimmer</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'><rect width='16' height='16' fill='%230E0D12'/><g fill='%23FFC857'><rect x='4' y='2' width='1' height='1'/><rect x='11' y='2' width='1' height='1'/><rect x='5' y='3' width='1' height='1'/><rect x='10' y='3' width='1' height='1'/><rect x='6' y='4' width='1' height='1'/><rect x='9' y='4' width='1' height='1'/><rect x='7' y='5' width='2' height='1'/><rect x='1' y='6' width='6' height='1'/><rect x='9' y='6' width='6' height='1'/><rect x='1' y='7' width='6' height='1'/><rect x='9' y='7' width='6' height='1'/><rect x='7' y='8' width='2' height='1'/><rect x='6' y='9' width='1' height='1'/><rect x='9' y='9' width='1' height='1'/><rect x='5' y='10' width='1' height='1'/><rect x='10' y='10' width='1' height='1'/><rect x='4' y='11' width='1' height='1'/><rect x='11' y='11' width='1' height='1'/></g></svg>">
+<link rel="stylesheet" href="/css/pico.min.css">
+<link rel="stylesheet" href="/css/style.css">
+<script defer src="/js/alpine.min.js"></script>
+</head>
+
+<body x-data="app()" x-init="boot()">
+
+<main class="container">
+  <header class="tv-header">
+    <span class="tv-logo" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 16 16" shape-rendering="crispEdges">
+        <g fill="#FFC857">
+          <rect x="4"  y="2"  width="1" height="1"/>
+          <rect x="11" y="2"  width="1" height="1"/>
+          <rect x="5"  y="3"  width="1" height="1"/>
+          <rect x="10" y="3"  width="1" height="1"/>
+          <rect x="6"  y="4"  width="1" height="1"/>
+          <rect x="9"  y="4"  width="1" height="1"/>
+          <rect x="7"  y="5"  width="2" height="1"/>
+          <rect x="1"  y="6"  width="6" height="1"/>
+          <rect x="9"  y="6"  width="6" height="1"/>
+          <rect x="1"  y="7"  width="6" height="1"/>
+          <rect x="9"  y="7"  width="6" height="1"/>
+          <rect x="7"  y="8"  width="2" height="1"/>
+          <rect x="6"  y="9"  width="1" height="1"/>
+          <rect x="9"  y="9"  width="1" height="1"/>
+          <rect x="5"  y="10" width="1" height="1"/>
+          <rect x="10" y="10" width="1" height="1"/>
+          <rect x="4"  y="11" width="1" height="1"/>
+          <rect x="11" y="11" width="1" height="1"/>
+        </g>
+      </svg>
+    </span>
+    <span class="tv-wordmark">glimmer</span>
+    <span class="tv-version" x-text="'v' + (state.fw || '...')"></span>
+  </header>
+
+  <nav class="tv-nav">
+    <button x-bind:class="{active: page==='status'}"   x-on:click="page='status'">Status</button>
+    <button x-bind:class="{active: page==='wifi'}"     x-on:click="page='wifi'">Wi-Fi</button>
+    <button x-bind:class="{active: page==='tokens'}"   x-on:click="page='tokens'">Tokens</button>
+    <button x-bind:class="{active: page==='channels'}" x-on:click="page='channels'">Channels</button>
+    <button x-bind:class="{active: page==='you'}"      x-on:click="page='you'">You</button>
+    <button x-bind:class="{active: page==='push'}"     x-on:click="page='push'">Push &amp; MCP</button>
+    <button x-bind:class="{active: page==='device'}"   x-on:click="page='device'">Device</button>
+  </nav>
+
+  <!-- STATUS -->
+  <section x-show="page==='status'" class="split">
+    <article>
+      <h2>Live state</h2>
+      <div class="info-row"><span class="k">Wi-Fi</span><span class="v" x-text="state.wifi || '—'"></span></div>
+      <div class="info-row"><span class="k">SSID</span><span class="v" x-text="state.ssid || '—'"></span></div>
+      <div class="info-row"><span class="k">IP</span><span class="v" x-text="state.ip || '—'"></span></div>
+      <div class="info-row"><span class="k">Signal</span><span class="v mint" x-text="state.rssi != null ? state.rssi + ' dBm' : '—'"></span></div>
+      <div class="info-row"><span class="k">Uptime</span><span class="v" x-text="formatUptime(state.uptime_s)"></span></div>
+      <div class="info-row"><span class="k">Free heap</span><span class="v amber" x-text="state.heap != null ? Math.round(state.heap/1024) + 'K' : '—'"></span></div>
+      <div class="info-row"><span class="k">Claude</span><span class="v" x-bind:class="state.claude_configured ? 'mint' : 'muted'" x-text="state.claude_configured ? 'configured' : 'not configured'"></span></div>
+      <div class="info-row"><span class="k">Codex</span><span class="v" x-bind:class="state.codex_configured ? 'mint' : 'muted'" x-text="state.codex_configured ? 'configured' : 'not configured'"></span></div>
+    </article>
+
+    <article>
+      <h2>Send a push card</h2>
+      <label>Title</label>
+      <input x-model="pushForm.title" placeholder="Build #2310">
+      <label>Value</label>
+      <input x-model="pushForm.value" placeholder="passed">
+      <label>Subtitle (optional)</label>
+      <input x-model="pushForm.subtitle" placeholder="main / 4 min ago">
+      <label>Color</label>
+      <select x-model="pushForm.color">
+        <option value="coral">coral</option>
+        <option value="amber">amber</option>
+        <option value="mint">mint (success)</option>
+        <option value="sky">sky</option>
+        <option value="lilac">lilac</option>
+      </select>
+      <label>Duration (seconds)</label>
+      <input type="number" x-model.number="pushForm.duration_s" min="5" max="300">
+      <button x-on:click="sendPush()" class="primary">Send</button>
+    </article>
+  </section>
+
+  <!-- WIFI -->
+  <section x-show="page==='wifi'">
+    <article>
+      <h2>Wi-Fi</h2>
+      <label>SSID</label>
+      <input x-model="settings.wifiSSID" placeholder="home network">
+      <label>Password</label>
+      <input type="password" x-model="settings.wifiPass" placeholder="****">
+      <div class="hint">Save &amp; Restart applies new Wi-Fi credentials. Device will reboot.</div>
+      <button x-on:click="saveSettings(true)" class="primary">Save &amp; Restart</button>
+    </article>
+  </section>
+
+  <!-- TOKENS -->
+  <section x-show="page==='tokens'">
+    <article>
+      <h2>Claude</h2>
+      <label>Session key</label>
+      <input type="password" x-model="settings.claudeKey" placeholder="sk-ant-sid02-...">
+      <div class="hint">claude.ai → DevTools → Application → Cookies → <code>sessionKey</code></div>
+    </article>
+    <article>
+      <h2>Codex</h2>
+      <label>Bearer token</label>
+      <input type="password" x-model="settings.codexToken" placeholder="eyJ...">
+      <div class="hint">chatgpt.com → DevTools → Network → any <code>backend-api</code> request → <code>authorization</code> header (value after "Bearer ")</div>
+      <label>Device ID</label>
+      <input x-model="settings.codexDeviceId" placeholder="uuid">
+      <div class="hint">Same request → <code>oai-device-id</code> header.</div>
+    </article>
+    <button x-on:click="saveSettings(false)" class="primary">Save</button>
+  </section>
+
+  <!-- CHANNELS -->
+  <section x-show="page==='channels'" class="split">
+    <article>
+      <h2>Visible channels</h2>
+      <label class="row"><input type="checkbox" x-model="settings.showHome">Home dashboard</label>
+      <label class="row"><input type="checkbox" x-model="settings.showClock">Clock</label>
+      <label class="row"><input type="checkbox" x-model="settings.showWeather">Weather now</label>
+      <label class="row"><input type="checkbox" x-model="settings.showForecast">5-day forecast</label>
+      <label class="row"><input type="checkbox" x-model="settings.showClaude">Claude usage</label>
+      <label class="row"><input type="checkbox" x-model="settings.showCodex">Codex usage</label>
+      <label class="row"><input type="checkbox" x-model="settings.showAiDash">AI dashboard</label>
+      <label class="row"><input type="checkbox" x-model="settings.showInfo">Device info</label>
+      <label class="row"><input type="checkbox" x-model="settings.autoRotate">Auto-rotate</label>
+      <h2 style="margin-top:1em">Display</h2>
+      <label class="row"><input type="checkbox" x-model="settings.invertDisplay">Invert colors (panel polarity)</label>
+      <div class="hint">If colors look wrong on your panel, toggle this. Takes effect immediately.</div>
+    </article>
+    <article>
+      <h2>Timing</h2>
+      <label>Refresh interval</label>
+      <select x-model.number="settings.refreshMin">
+        <option value="1">1 min</option>
+        <option value="2">2 min</option>
+        <option value="5">5 min</option>
+        <option value="10">10 min</option>
+        <option value="15">15 min</option>
+        <option value="30">30 min</option>
+      </select>
+      <label>Auto-rotate every</label>
+      <select x-model.number="settings.channelSec">
+        <option value="3">3 sec</option>
+        <option value="5">5 sec</option>
+        <option value="8">8 sec</option>
+        <option value="10">10 sec</option>
+        <option value="15">15 sec</option>
+        <option value="20">20 sec</option>
+        <option value="30">30 sec</option>
+      </select>
+    </article>
+    <article>
+      <h2>Weather</h2>
+      <label>Latitude</label>
+      <input x-model.number="settings.weatherLat" placeholder="22.5726">
+      <label>Longitude</label>
+      <input x-model.number="settings.weatherLon" placeholder="88.3639">
+      <div class="hint">Free Open-Meteo (no API key). Use any coordinates from openstreetmap.org.</div>
+      <label class="row"><input type="checkbox" x-model="settings.useFahrenheit">Show °F (instead of °C)</label>
+    </article>
+    <button x-on:click="saveSettings(false)" class="primary">Save</button>
+  </section>
+
+  <!-- YOU -->
+  <section x-show="page==='you'" class="split">
+    <article>
+      <h2>Personalization</h2>
+      <label>Your name</label>
+      <input x-model="settings.userName" placeholder="Avi">
+      <div class="hint">Shown on boot splash and birthday card.</div>
+      <label>Birthday (MM-DD)</label>
+      <input x-model="settings.birthday" placeholder="07-15">
+    </article>
+    <article>
+      <h2>Display</h2>
+      <label>Brightness</label>
+      <select x-model.number="settings.brightness">
+        <option value="10">10%</option>
+        <option value="25">25%</option>
+        <option value="50">50%</option>
+        <option value="75">75%</option>
+        <option value="100">100%</option>
+      </select>
+      <label>Timezone</label>
+      <select x-model.number="settings.tzMinutes">
+        <template x-for="tz in tzZones()" :key="tz.min">
+          <option :value="tz.min" x-text="tz.label"></option>
+        </template>
+      </select>
+      <div class="hint">Half-hour and 45-min zones supported (India, Nepal, Newfoundland, etc.).</div>
+    </article>
+    <article>
+      <h2>Night dim</h2>
+      <label class="row"><input type="checkbox" x-model="settings.nightDim">Dim screen at night</label>
+      <label>From hour</label>
+      <select x-model.number="settings.nightStart">
+        <template x-for="h in hours()" :key="h">
+          <option :value="h" x-text="h + ':00'"></option>
+        </template>
+      </select>
+      <label>Until hour</label>
+      <select x-model.number="settings.nightEnd">
+        <template x-for="h in hours()" :key="h">
+          <option :value="h" x-text="h + ':00'"></option>
+        </template>
+      </select>
+      <label>Night brightness</label>
+      <select x-model.number="settings.nightBright">
+        <option value="5">5%</option>
+        <option value="15">15%</option>
+        <option value="30">30%</option>
+        <option value="50">50%</option>
+      </select>
+    </article>
+    <button x-on:click="saveSettings(false)" class="primary">Save</button>
+  </section>
+
+  <!-- PUSH & MCP -->
+  <section x-show="page==='push'">
+    <article>
+      <h2>API token</h2>
+      <label>Bearer token (optional)</label>
+      <input type="password" x-model="settings.apiToken" placeholder="leave blank for unauthenticated">
+      <div class="hint">When set, <code>/push</code> and <code>/mcp</code> require <code>Authorization: Bearer &lt;token&gt;</code>.</div>
+      <button x-on:click="saveSettings(false)" class="primary">Save</button>
+    </article>
+    <article>
+      <h2>cURL</h2>
+      <pre style="background: var(--panel-2); padding: 10px; border-radius: 4px; font-size: 0.7rem; overflow-x: auto; color: var(--ink-dim);"
+x-text="curlSnippet()"></pre>
+    </article>
+    <article>
+      <h2>Claude Code MCP config</h2>
+      <pre style="background: var(--panel-2); padding: 10px; border-radius: 4px; font-size: 0.7rem; overflow-x: auto; color: var(--ink-dim);"
+x-text="mcpSnippet()"></pre>
+    </article>
+  </section>
+
+  <!-- DEVICE -->
+  <section x-show="page==='device'">
+    <article>
+      <h2>Firmware</h2>
+      <div class="info-row"><span class="k">Version</span><span class="v" x-text="state.fw || '—'"></span></div>
+      <div class="hint" style="margin-top: 16px;">
+        OTA firmware upload: <a href="/update" style="color: var(--sky);">/update</a>
+      </div>
+    </article>
+    <article>
+      <h2>Config backup</h2>
+      <button x-on:click="exportConfig()" class="secondary">Download config.json</button>
+      <input type="file" x-ref="importFile" x-on:change="importConfig" accept=".json" style="display:none">
+      <button x-on:click="$refs.importFile.click()" class="secondary" style="margin-top: 8px;">Import config.json</button>
+      <div class="hint">Export before flashing the LittleFS image (fonts/web UI updates).</div>
+    </article>
+    <article>
+      <h2>Power</h2>
+      <button x-on:click="reboot()" class="secondary">Reboot device</button>
+      <div class="hint">Restarts the device. Config preserved.</div>
+    </article>
+    <article>
+      <h2>Danger zone</h2>
+      <button x-on:click="factoryReset()" class="danger">Factory reset</button>
+    </article>
+  </section>
+
+  <!-- Toast -->
+  <div class="toast" x-show="toast.msg" x-text="toast.msg"
+       x-bind:class="toast.error ? 'error' : ''"></div>
+</main>
+
+<script>
+function app() {
+  return {
+    page: 'status',
+    state: {},
+    settings: {},
+    pushForm: { title: '', value: '', subtitle: '', color: 'mint', duration_s: 30 },
+    toast: { msg: '', error: false, _t: null },
+
+    async boot() {
+      await this.refreshState();
+      await this.loadSettings();
+      // Periodic state refresh
+      setInterval(() => this.refreshState(), 5000);
+    },
+
+    async refreshState() {
+      try {
+        const r = await fetch('/api/state');
+        if (r.ok) this.state = await r.json();
+      } catch (e) { /* network blip, keep last state */ }
+    },
+
+    async loadSettings() {
+      try {
+        const r = await fetch('/api/settings');
+        if (r.ok) this.settings = await r.json();
+      } catch (e) { this.showToast('Failed to load settings', true); }
+    },
+
+    async saveSettings(restart) {
+      try {
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({...this.settings, _restart: restart})
+        });
+        if (r.ok) {
+          this.showToast(restart ? 'Saved — restarting...' : 'Saved');
+          if (restart) setTimeout(() => location.reload(), 3000);
+        } else {
+          this.showToast('Save failed', true);
+        }
+      } catch (e) { this.showToast('Network error', true); }
+    },
+
+    async sendPush() {
+      try {
+        const headers = {'Content-Type': 'application/json'};
+        if (this.settings.apiToken) headers['Authorization'] = 'Bearer ' + this.settings.apiToken;
+        const r = await fetch('/push', {
+          method: 'POST', headers,
+          body: JSON.stringify(this.pushForm)
+        });
+        if (r.ok) this.showToast('Pushed to device');
+        else this.showToast('Push failed (HTTP ' + r.status + ')', true);
+      } catch (e) { this.showToast('Network error', true); }
+    },
+
+    async factoryReset() {
+      if (!confirm('Erase all config and reboot?')) return;
+      try {
+        await fetch('/api/factory-reset', {method: 'POST'});
+        this.showToast('Resetting...');
+      } catch (e) {}
+    },
+
+    async reboot() {
+      if (!confirm('Reboot device?')) return;
+      try {
+        await fetch('/api/reboot', {method: 'POST'});
+        this.showToast('Rebooting...');
+      } catch (e) {}
+    },
+
+    async exportConfig() {
+      const r = await fetch('/api/export');
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'glimmer-config.json'; a.click();
+      URL.revokeObjectURL(url);
+    },
+
+    async importConfig(ev) {
+      const file = ev.target.files[0];
+      if (!file) return;
+      const text = await file.text();
+      const r = await fetch('/api/import', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: text
+      });
+      if (r.ok) {
+        this.showToast('Imported — restarting...');
+        setTimeout(() => location.reload(), 3000);
+      } else {
+        this.showToast('Import failed', true);
+      }
+    },
+
+    showToast(msg, error=false) {
+      this.toast = { msg, error };
+      if (this.toast._t) clearTimeout(this.toast._t);
+      this.toast._t = setTimeout(() => this.toast.msg = '', 3000);
+    },
+
+    formatUptime(s) {
+      if (!s) return '—';
+      const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+      if (h > 0) return h + 'h ' + m + 'm';
+      return m + 'm';
+    },
+
+    hours() { return Array.from({length: 24}, (_, i) => i); },
+    tzRange() { return Array.from({length: 27}, (_, i) => i - 12); },
+    tzZones() {
+      // Minute-precision timezone list. Includes half-hour and 45-min zones.
+      const z = [
+        [-720, 'UTC-12:00'], [-660, 'UTC-11:00'], [-600, 'UTC-10:00'],
+        [-570, 'UTC-09:30 (Marquesas)'], [-540, 'UTC-09:00'], [-480, 'UTC-08:00'],
+        [-420, 'UTC-07:00'], [-360, 'UTC-06:00'], [-300, 'UTC-05:00'],
+        [-270, 'UTC-04:30'], [-240, 'UTC-04:00'],
+        [-210, 'UTC-03:30 (Newfoundland)'], [-180, 'UTC-03:00'],
+        [-120, 'UTC-02:00'], [-60, 'UTC-01:00'], [0, 'UTC'],
+        [60, 'UTC+01:00'], [120, 'UTC+02:00'], [180, 'UTC+03:00'],
+        [210, 'UTC+03:30 (Iran)'], [240, 'UTC+04:00'],
+        [270, 'UTC+04:30 (Afghanistan)'], [300, 'UTC+05:00'],
+        [330, 'UTC+05:30 (India, Sri Lanka)'], [345, 'UTC+05:45 (Nepal)'],
+        [360, 'UTC+06:00'], [390, 'UTC+06:30 (Myanmar)'],
+        [420, 'UTC+07:00'], [480, 'UTC+08:00'],
+        [525, 'UTC+08:45 (Eucla)'], [540, 'UTC+09:00'],
+        [570, 'UTC+09:30 (Adelaide)'], [600, 'UTC+10:00'],
+        [630, 'UTC+10:30 (Lord Howe)'], [660, 'UTC+11:00'],
+        [720, 'UTC+12:00'], [765, 'UTC+12:45 (Chatham)'],
+        [780, 'UTC+13:00'], [840, 'UTC+14:00'],
+      ];
+      return z.map(([min, label]) => ({min, label}));
+    },
+
+    curlSnippet() {
+      const auth = this.settings.apiToken ? `\n  -H "Authorization: Bearer ${this.settings.apiToken}" \\` : '';
+      return `curl -X POST http://${this.state.ip || 'glimmer.local'}/push \\${auth}
+  -H "Content-Type: application/json" \\
+  -d '{"title":"Hello","value":"world","color":"mint","duration_s":30}'`;
+    },
+
+    mcpSnippet() {
+      const url = `http://${this.state.ip || 'glimmer.local'}/mcp`;
+      const auth = this.settings.apiToken ? `,\n        "headers": {"Authorization": "Bearer ${this.settings.apiToken}"}` : '';
+      return `{
+  "mcpServers": {
+    "glimmer": {
+      "type": "http",
+      "url": "${url}"${auth}
+    }
+  }
+}`;
+    }
+  };
+}
+</script>
+
+</body>
+</html>
