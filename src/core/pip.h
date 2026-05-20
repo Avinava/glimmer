@@ -1,13 +1,13 @@
 #pragma once
 #include <Arduino.h>
 
-// Pip — the SmallTV mascot. A 20×20 pixel CRT sprite with mood variations.
-// Body is universal; only the inner face (rows 7..12, cols 4..11) changes.
-//
-// v0.8 ships 2 moods (THINKING, SIGNAL). v0.10 ships the full library.
-
+// MoodId — historically used to drive the Pip mascot's facial expression.
+// The mascot was removed in v0.13 (the design's "Mascot Speaks" principle was
+// traded for information density on a desk display). The enum survives because
+// Display::statusBar() still takes a MoodId for API stability — callers pass
+// MoodId::NONE and the slot stays empty.
 enum class MoodId : uint8_t {
-    NONE,       // skip — leaves the slot empty
+    NONE,       // skip — leaves the slot empty (only value used in v0.13+)
     HAPPY,
     SLEEP,
     THINKING,
@@ -19,9 +19,3 @@ enum class MoodId : uint8_t {
     HI,
     SIGNAL,
 };
-
-namespace Pip {
-    // Draw Pip at (x, y) with the given mood, scaled `scale`x (1 = 20 px, 2 = 40 px).
-    // For NONE mood, this is a no-op.
-    void draw(int x, int y, uint8_t scale, MoodId mood);
-}

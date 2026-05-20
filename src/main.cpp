@@ -19,7 +19,6 @@
 #include "web.h"
 #include "api.h"
 #include "channel.h"
-#include "transitions.h"
 #include "mood.h"
 
 // ── Channel registry — declared in their own .cpp files ─────────────────────
