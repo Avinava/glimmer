@@ -57,12 +57,14 @@ static bool tlsGetOnce(const String& url,
     http.setTimeout(15000);
     if (!http.begin(sc, url)) {
         httpCode = -2;                                  // -2 = begin() failed (URL/TLS init)
-        Serial.printf("[tls] http.begin failed, heap=%u\n", ESP.getFreeHeap());
+        Serial.printf("[tls] http.begin failed, heap=%u, maxblk=%u\n",
+                      ESP.getFreeHeap(), ESP.getMaxFreeBlockSize());
         return false;
     }
     addHeaders(http);
     httpCode = http.GET();                              // negative = HTTPClient error
-    Serial.printf("[tls] GET → %d, heap=%u\n", httpCode, ESP.getFreeHeap());
+    Serial.printf("[tls] GET → %d, heap=%u, maxblk=%u\n",
+                  httpCode, ESP.getFreeHeap(), ESP.getMaxFreeBlockSize());
     if (httpCode == HTTP_CODE_OK) body = http.getString();
     http.end();
     return httpCode == HTTP_CODE_OK;
@@ -78,7 +80,8 @@ static bool tlsGet(const String& url, const std::function<void(HTTPClient&)>& ad
     Display::releaseFont();
     yield(); delay(20);
 
-    Serial.printf("[tls] heap before begin=%u, url=%s\n", ESP.getFreeHeap(), url.c_str());
+    Serial.printf("[tls] heap=%u maxblk=%u url=%s\n",
+                  ESP.getFreeHeap(), ESP.getMaxFreeBlockSize(), url.c_str());
 
     if (tlsGetOnce(url, addHeaders, body, httpCode)) return true;
 
@@ -99,7 +102,14 @@ static bool tlsGet(const String& url, const std::function<void(HTTPClient&)>& ad
 
 // ── Claude fetch ─────────────────────────────────────────────────────────────
 
+static String s_cachedOrgId;
+static String s_cachedOrgKey;
+
 static bool fetchClaudeOrg(const String& key, String& orgId, char errBuf[]) {
+    if (s_cachedOrgId.length() && s_cachedOrgKey == key) {
+        orgId = s_cachedOrgId;
+        return true;
+    }
     String body; int code;
     auto addH = [&](HTTPClient& h){
         h.addHeader("Cookie",     "sessionKey=" + key);
@@ -114,11 +124,14 @@ static bool fetchClaudeOrg(const String& key, String& orgId, char errBuf[]) {
     }
     JsonDocument doc;
     if (deserializeJson(doc, body)) { snprintf(errBuf, 24, "JSON parse"); return false; }
+    body = String();
     JsonArray arr = doc.as<JsonArray>();
     if (arr.size() == 0) { snprintf(errBuf, 24, "No org"); return false; }
     const char* uuid = arr[0]["uuid"].as<const char*>();
     if (!uuid || !*uuid) { snprintf(errBuf, 24, "No uuid"); return false; }
     orgId = uuid;
+    s_cachedOrgId = orgId;
+    s_cachedOrgKey = key;
     return true;
 }
 
@@ -127,7 +140,9 @@ bool Api::fetchClaude(const Settings& s, ClaudeData& out) {
     out.err[0] = '\0';
 
     String orgId;
+    bool wasCached = (s_cachedOrgId.length() && s_cachedOrgKey == s.claudeKey);
     if (!fetchClaudeOrg(s.claudeKey, orgId, out.err)) return false;
+    if (!wasCached) { yield(); delay(150); }
 
     String body; int code;
     String url = "https://claude.ai/api/organizations/" + orgId + "/usage";
@@ -144,6 +159,7 @@ bool Api::fetchClaude(const Settings& s, ClaudeData& out) {
     }
     JsonDocument doc;
     if (deserializeJson(doc, body)) { snprintf(out.err, sizeof(out.err), "parse"); return false; }
+    body = String();
 
     auto remainingFromKey = [&](const char* k) -> float {
         if (!doc[k].is<JsonObject>()) return -1.0f;
@@ -212,6 +228,7 @@ bool Api::fetchCodex(const Settings& s, CodexData& out) {
 
     JsonDocument doc;
     if (deserializeJson(doc, body)) { snprintf(out.err, sizeof(out.err), "parse"); out.valid=false; return false; }
+    body = String();
 
     JsonVariant pw = doc["rate_limit"]["primary_window"];
     JsonVariant sw = doc["rate_limit"]["secondary_window"];

@@ -93,6 +93,7 @@ static void handleApiState() {
     d["rssi"]                = WiFi.RSSI();
     d["uptime_s"]            = (uint32_t)(millis() / 1000);
     d["heap"]                = ESP.getFreeHeap();
+    d["maxblk"]              = ESP.getMaxFreeBlockSize();
     d["cpu_mhz"]             = ESP.getCpuFreqMHz();
     d["claude_configured"]   = pSettings && !pSettings->claudeKey.isEmpty();
     d["codex_configured"]    = pSettings && !pSettings->codexToken.isEmpty();
@@ -359,6 +360,7 @@ static void handleMcp() {
             st["fw"]       = FW_VERSION;
             st["uptime_s"] = (uint32_t)(millis() / 1000);
             st["heap"]     = ESP.getFreeHeap();
+            st["maxblk"]   = ESP.getMaxFreeBlockSize();
             st["wifi"]     = WiFi.status() == WL_CONNECTED ? "connected" : "ap";
             resp["result"]["content"][0]["type"] = "json";
         } else {
