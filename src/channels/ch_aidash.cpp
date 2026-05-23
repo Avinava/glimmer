@@ -1,20 +1,23 @@
 // AI Dashboard — combined Claude+Codex glance.
 //
-// Design-true from AiDashScreen:
-//   - StatusBar "AI today" with Pip THINKING + total credits right
+// Layout:
+//   - StatusBar "AI today" with total credits right
 //   - Two big % side-by-side (CLAUDE coral, CODEX lilac)
 //   - PixelBars stacked
-//   - 7-day mini chart (stub data until v0.11 history buffer lands)
+//   - Reset countdown rows (real data from API)
 
 #include "channel.h"
 #include "display.h"
 #include "theme.h"
 #include "config.h"
+#include "api.h"
 #include <math.h>
 
 // tick cache
 static float s_cl = -2.f, s_cx = -2.f;
 static float s_credits = -2.f;
+static char  s_clReset[12] = "";
+static char  s_cxReset[12] = "";
 
 bool chAiDashEnabled(const ChannelCtx& ctx) {
     return ctx.settings && ctx.settings->showAiDash
@@ -48,6 +51,20 @@ static void paintCXBlock(float cx) {
     Display::pixelBar(12, 110, SCREEN_W - 24, 10, cx < 0 ? 0 : cx, uc);
 }
 
+static void paintResetRow(int y, const char* tag, uint16_t tagColor, time_t resetEpoch) {
+    tft.fillRect(0, y, SCREEN_W, 14, Theme::BG);
+    Display::useFont("Silkscreen-12");
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextColor(tagColor, Theme::BG);
+    tft.drawString(tag, 12, y);
+
+    String cd = Api::formatCountdown(resetEpoch);
+    Display::useFont("DMMono-11");
+    tft.setTextDatum(TR_DATUM);
+    tft.setTextColor(Theme::INK_DIM, Theme::BG);
+    tft.drawString(cd, SCREEN_W - 12, y);
+}
+
 void chAiDashDraw(const ChannelCtx& ctx) {
     Display::clear();
 
@@ -55,7 +72,7 @@ void chAiDashDraw(const ChannelCtx& ctx) {
     char rmeta[16] = "";
     const float credits = ctx.codex && ctx.codex->creditsRemain >= 0 ? ctx.codex->creditsRemain : -1;
     if (credits >= 0) snprintf(rmeta, sizeof(rmeta), "$%.2f", credits);
-    Display::statusBar("AI today", MoodId::NONE, rmeta, Theme::INK_DIM);
+    Display::statusBar("AI today", rmeta, Theme::INK_DIM);
 
     const float cl = ctx.claude ? (ctx.settings->claudeWeeklyHero ? ctx.claude->weeklyPct : ctx.claude->sessionPct) : -1;
     const float cx = ctx.codex  ? (ctx.settings->codexWeeklyHero  ? ctx.codex->secondaryPct : ctx.codex->primaryPct) : -1;
@@ -76,39 +93,23 @@ void chAiDashDraw(const ChannelCtx& ctx) {
 
     Display::dotsDivider(12, 130, SCREEN_W - 24);
 
-    // Section label — DMMono-11
+    // Reset countdowns — real data from API
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::MUTED, Theme::BG);
-    tft.drawString("LAST 7 DAYS", 12, 138);
+    tft.drawString("RESETS", 12, 138);
 
-    // 7-day stacked mini bars (v0.10 stub — replaces with real history in v0.11).
-    // Pairs are (claude%, codex%). Today's bar uses live current values.
-    int hist_cl[7] = {20, 38, 44, 30, 55, 62, (int)(cl < 0 ? 50 : cl)};
-    int hist_cx[7] = {12, 22, 18, 34, 28, 31, (int)(cx < 0 ? 23 : cx)};
-    int gap = 4;
-    int barW = (SCREEN_W - 24 - gap * 6) / 7;
-    int baseY = 200;
-    const char dayLabel[] = "MTWTFSS";
-    for (int i = 0; i < 7; i++) {
-        int x = 12 + i * (barW + gap);
-        int h1 = hist_cl[i] / 2;     // half-scale (max 50px-ish)
-        int h2 = hist_cx[i] / 2;
-        // Codex bar bottom, Claude on top — both grow upward from baseY
-        tft.fillRect(x, baseY - h1, barW, h1, Theme::CORAL);
-        tft.fillRect(x, baseY - h1 - h2 - 1, barW, h2, Theme::LILAC);
-        // Day label below — DMMono-11
-        char d[2] = { dayLabel[i], 0 };
-        Display::useFont("DMMono-11");
-        tft.setTextDatum(MC_DATUM);
-        tft.setTextColor(Theme::MUTED, Theme::BG);
-        tft.drawString(d, x + barW / 2, baseY + 6);
-    }
+    time_t clReset = ctx.claude ? ctx.claude->sessionReset : 0;
+    time_t cxReset = ctx.codex  ? ctx.codex->primaryReset  : 0;
+    paintResetRow(158, "CL", Theme::CORAL, clReset);
+    paintResetRow(174, "CX", Theme::LILAC, cxReset);
 
     // Seed cache
     s_cl = (cl < 0) ? -2.f : cl;
     s_cx = (cx < 0) ? -2.f : cx;
     s_credits = credits;
+    strncpy(s_clReset, Api::formatCountdown(clReset).c_str(), sizeof(s_clReset) - 1);
+    strncpy(s_cxReset, Api::formatCountdown(cxReset).c_str(), sizeof(s_cxReset) - 1);
 }
 
 void chAiDashTick(const ChannelCtx& ctx) {
@@ -123,7 +124,6 @@ void chAiDashTick(const ChannelCtx& ctx) {
     // Credits — repaint just the right meta in the status bar
     const float credits = ctx.codex && ctx.codex->creditsRemain >= 0 ? ctx.codex->creditsRemain : -1.f;
     if (fabsf(credits - s_credits) > 0.005f) {
-        // Just clear + redraw the status bar's right meta region.
         char rmeta[16] = "";
         if (credits >= 0) snprintf(rmeta, sizeof(rmeta), "$%.2f", credits);
         tft.fillRect(SCREEN_W - 80, 0, 80, 21, Theme::BG);
@@ -131,8 +131,21 @@ void chAiDashTick(const ChannelCtx& ctx) {
         tft.setTextDatum(MR_DATUM);
         tft.setTextColor(Theme::MUTED, Theme::BG);
         tft.drawString(rmeta, SCREEN_W - 4, 11);
-        // Re-stroke the underline since fillRect erased part of it
         tft.drawFastHLine(SCREEN_W - 80, 21, 80, Theme::INK_DIM);
         s_credits = credits;
+    }
+
+    // Reset countdowns — repaint only when text changes
+    time_t clReset = ctx.claude ? ctx.claude->sessionReset : 0;
+    time_t cxReset = ctx.codex  ? ctx.codex->primaryReset  : 0;
+    String clFresh = Api::formatCountdown(clReset);
+    String cxFresh = Api::formatCountdown(cxReset);
+    if (strcmp(clFresh.c_str(), s_clReset) != 0) {
+        paintResetRow(158, "CL", Theme::CORAL, clReset);
+        strncpy(s_clReset, clFresh.c_str(), sizeof(s_clReset) - 1);
+    }
+    if (strcmp(cxFresh.c_str(), s_cxReset) != 0) {
+        paintResetRow(174, "CX", Theme::LILAC, cxReset);
+        strncpy(s_cxReset, cxFresh.c_str(), sizeof(s_cxReset) - 1);
     }
 }

@@ -33,7 +33,7 @@ static void infoRow(int y, const char* k, const String& v, uint16_t valColor) {
 
 void chInfoDraw(const ChannelCtx& ctx) {
     Display::clear();
-    Display::statusBar("Info", MoodId::NONE, "DIAG", Theme::MINT);
+    Display::statusBar("Info", "DIAG", Theme::MINT);
 
     int rssi = WiFi.RSSI();
     uint16_t sigCol = (rssi > -60) ? Theme::MINT

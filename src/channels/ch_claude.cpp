@@ -91,7 +91,7 @@ static void paintWeeklySub(float pct, time_t weekReset) {
 
 void chClaudeDraw(const ChannelCtx& ctx) {
     Display::clear();
-    Display::statusBar("Claude", MoodId::NONE, "SONNET", Theme::CORAL);
+    Display::statusBar("Claude", "SONNET", Theme::CORAL);
 
     const ClaudeData& d = *ctx.claude;
     if (d.err[0]) {

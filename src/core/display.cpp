@@ -212,7 +212,7 @@ void Display::drawSplash(const char* line) {
 void Display::drawSetupMode(const char* ap, const char* ip) {
     clear();
     // Status bar: title "glimmer" + right meta "SETUP"
-    statusBar("glimmer", MoodId::NONE, "SETUP", Theme::CORAL);
+    statusBar("glimmer", "SETUP", Theme::CORAL);
     // Spark logo above the call-to-action
     drawLogo(SCREEN_W/2 - 8, 26, Theme::AMBER);
 
@@ -346,11 +346,10 @@ void Display::drawOtaProgress(uint8_t pct) {
 
 // ── Design-system primitives (v0.8) ─────────────────────────────────────────
 
-void Display::statusBar(const char* title, MoodId mood,
+void Display::statusBar(const char* title,
                         const char* rightMeta, uint16_t accent) {
     using namespace Layout;
     tft.fillRect(0, STATUS_TOP, SCREEN_W, STATUS_BOTTOM, Theme::BG);
-    (void)mood;  // Pip removed in v0.13; mood arg kept for API stability.
 
     // Center title — Silkscreen-12 (design spec: .status .title { font-size: 12px })
     Display::useFont("Silkscreen-12");

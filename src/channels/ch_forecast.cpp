@@ -87,7 +87,7 @@ static void computeRange(WeatherData* w, float& gMin, float& range) {
 
 void chForecastDraw(const ChannelCtx& ctx) {
     Display::clear();
-    Display::statusBar("Forecast", MoodId::NONE, "3-DAY", Theme::SKY);
+    Display::statusBar("Forecast", "3-DAY", Theme::SKY);
 
     WeatherData* w = weatherSnapshotPtr();
     if (!w || !w->valid) {

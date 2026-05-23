@@ -66,7 +66,7 @@ static void miniDay(int x, int y, int w, const WeatherDay& d, const char* label,
 
 void chWeatherDraw(const ChannelCtx& ctx) {
     Display::clear();
-    Display::statusBar("Weather", MoodId::NONE, "OUT", Theme::SKY);
+    Display::statusBar("Weather", "OUT", Theme::SKY);
 
     if (!s_w.valid) {
         Display::useFont("Silkscreen-16");

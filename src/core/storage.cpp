@@ -32,7 +32,6 @@ Settings Storage::load() {
     s.showForecast  = doc["show_forecast"]  | true;
     s.showAiDash    = doc["show_aidash"]    | true;
     s.showInfo      = doc["show_info"]      | true;
-    s.showTrends    = doc["show_trends"]    | true;
     s.autoRotate    = doc["auto_rotate"]    | true;
     s.claudeWeeklyHero = doc["claude_weekly_hero"] | false;
     s.codexWeeklyHero  = doc["codex_weekly_hero"]  | false;
@@ -47,8 +46,6 @@ Settings Storage::load() {
     s.useFahrenheit = doc["fahrenheit"]     | false;
     s.userName      = doc["user_name"]      | "";
     s.birthday      = doc["birthday"]       | "";
-    s.timeOfDayMood = doc["mood"]           | true;
-    s.autoBrightness= doc["auto_bright"]    | true;
     s.apiToken      = doc["api_token"]      | "";
     return s;
 }
@@ -72,7 +69,6 @@ bool Storage::save(const Settings& s) {
     doc["show_forecast"] = s.showForecast;
     doc["show_aidash"]   = s.showAiDash;
     doc["show_info"]     = s.showInfo;
-    doc["show_trends"]   = s.showTrends;
     doc["auto_rotate"]   = s.autoRotate;
     doc["claude_weekly_hero"] = s.claudeWeeklyHero;
     doc["codex_weekly_hero"]  = s.codexWeeklyHero;
@@ -87,14 +83,14 @@ bool Storage::save(const Settings& s) {
     doc["fahrenheit"]   = s.useFahrenheit;
     doc["user_name"]    = s.userName;
     doc["birthday"]     = s.birthday;
-    doc["mood"]         = s.timeOfDayMood;
-    doc["auto_bright"]  = s.autoBrightness;
     doc["api_token"]    = s.apiToken;
-    File f = LittleFS.open(CFG_PATH, "w");
+    File f = LittleFS.open("/config.tmp", "w");
     if (!f) return false;
     auto n = serializeJson(doc, f);
     f.close();
-    return n > 0;
+    if (n <= 0) { LittleFS.remove("/config.tmp"); return false; }
+    LittleFS.remove(CFG_PATH);
+    return LittleFS.rename("/config.tmp", CFG_PATH);
 }
 
 void Storage::factoryReset() {

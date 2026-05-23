@@ -2,7 +2,6 @@
 #include <TFT_eSPI.h>
 #include "config.h"
 #include "layout.h"
-#include "pip.h"
 
 extern TFT_eSPI tft;
 
@@ -60,11 +59,10 @@ namespace Display {
     // ── Design-system primitives (added v0.8) ──
     //
     // Universal 22-px status bar across the top of every channel screen.
-    //   left slot:   20×20 Pip in the given mood (or empty if MoodId::NONE)
     //   center:      title text, Silkscreen-feel
     //   right slot:  small meta text (model name, location code, etc.)
     //   y=22:        1-px accent under-line in the channel's color
-    void statusBar(const char* title, MoodId mood, const char* rightMeta, uint16_t accent);
+    void statusBar(const char* title, const char* rightMeta, uint16_t accent);
 
     // Flat colored fill bar with 1-px frame. The design language.
     //   x, y, w, h:  full bar rectangle

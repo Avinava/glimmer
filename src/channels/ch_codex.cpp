@@ -94,7 +94,7 @@ static void paintSecondary(float pct) {
 
 void chCodexDraw(const ChannelCtx& ctx) {
     Display::clear();
-    Display::statusBar("Codex", MoodId::NONE, "GPT-5", Theme::LILAC);
+    Display::statusBar("Codex", "GPT-5", Theme::LILAC);
 
     const CodexData& d = *ctx.codex;
     if (d.err[0]) {

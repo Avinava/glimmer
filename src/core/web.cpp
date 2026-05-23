@@ -125,7 +125,6 @@ static void handleApiGetSettings() {
     d["showForecast"]  = s.showForecast;
     d["showAiDash"]    = s.showAiDash;
     d["showInfo"]      = s.showInfo;
-    d["showTrends"]    = s.showTrends;
     d["autoRotate"]    = s.autoRotate;
     d["claudeWeeklyHero"] = s.claudeWeeklyHero;
     d["codexWeeklyHero"]  = s.codexWeeklyHero;
@@ -210,7 +209,6 @@ static void applyIfPresent(Settings& s, JsonDocument& d) {
     applyBool("showForecast", s.showForecast);
     applyBool("showAiDash",   s.showAiDash);
     applyBool("showInfo",     s.showInfo);
-    applyBool("showTrends",   s.showTrends);
     applyBool("autoRotate",   s.autoRotate);
     applyBool("claudeWeeklyHero", s.claudeWeeklyHero);
     applyBool("codexWeeklyHero",  s.codexWeeklyHero);
@@ -309,8 +307,9 @@ static void handlePush() {
     const char* value = doc["value"]    | "";
     const char* sub   = doc["subtitle"] | "";
     String      col   = doc["color"]    | "coral";
-    uint32_t    dur   = (uint32_t)(doc["duration_s"] | 30) * 1000UL;
-    pushCardSet(title, value, sub, parseColor(col), dur);
+    uint32_t    durS  = (uint32_t)(doc["duration_s"] | 30);
+    if (durS > 300) durS = 300;
+    pushCardSet(title, value, sub, parseColor(col), durS * 1000UL);
     server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -344,7 +343,6 @@ static void handleMcp() {
             t["inputSchema"]["type"] = "object";
         };
         add("push_card",  "Flash a status card on the SmallTV screen for a short time");
-        add("set_status", "Set a persistent text status shown on the device");
         add("get_state",  "Return the device's current state (channel, usage, uptime)");
     }
     else if (strcmp(method, "tools/call") == 0) {
@@ -355,8 +353,9 @@ static void handleMcp() {
             const char* v = args["value"]    | "";
             const char* s = args["subtitle"] | "";
             String      c = args["color"]    | "coral";
-            uint32_t   d  = (uint32_t)(args["duration_s"] | 30) * 1000UL;
-            pushCardSet(t, v, s, parseColor(c), d);
+            uint32_t   ds = (uint32_t)(args["duration_s"] | 30);
+            if (ds > 300) ds = 300;
+            pushCardSet(t, v, s, parseColor(c), ds * 1000UL);
             resp["result"]["content"][0]["type"] = "text";
             resp["result"]["content"][0]["text"] = "Card pushed";
         } else if (strcmp(name, "get_state") == 0) {

@@ -25,18 +25,6 @@ namespace Theme {
     constexpr uint16_t MINT     = 0x8F2E;  // #8FE574  Info / OK
     constexpr uint16_t SKY      = 0x55BF;  // #54B6FF  Weather
     constexpr uint16_t LILAC    = 0xC43F;  // #C385FF  Codex
-    constexpr uint16_t PINK     = 0xFD16;  // #FFA0B8  Pip cheek
-
-    // ── Legacy aliases (kept so existing channel code compiles unchanged) ──
-    constexpr uint16_t TEXT     = INK;
-    constexpr uint16_t DIM      = MUTED;
-    constexpr uint16_t ACCENT   = CORAL;
-    constexpr uint16_t CODEX    = LILAC;
-    constexpr uint16_t GREEN    = MINT;
-    constexpr uint16_t RED      = CORAL;
-    constexpr uint16_t BARTRK   = PANEL;
-
-    // Theme color for a named channel — used by the channel indicator strip
-    // and the curtain transition between channels.
+    // Theme color for a named channel — used by the channel indicator strip.
     uint16_t channelColor(const char* name);
 }

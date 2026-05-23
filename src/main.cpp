@@ -282,11 +282,13 @@ void loop() {
     uint32_t refreshMs = (uint32_t)g_settings.refreshMin * 60000UL;
     if (!g_apMode && now - g_lastRefresh >= refreshMs) {
         g_lastRefresh = now;
+        tft.fillCircle(SCREEN_W - 6, 6, 3, Theme::CORAL);
         refreshAll();
         g_lastSlide = now;
     }
 
-    // If a push card is freshly active, snap to it immediately
+    // If a push card is freshly active, snap to it immediately.
+    // When it expires, advance to the next channel right away.
     static bool wasPushActive = false;
     ChannelCtx ctx = makeCtx();
     bool pushActive = chPushEnabled(ctx);
@@ -297,6 +299,10 @@ void loop() {
                 g_activePtr = i; break;
             }
         }
+        drawActive();
+        g_lastSlide = now;
+    } else if (!pushActive && wasPushActive) {
+        recomputeActive();
         drawActive();
         g_lastSlide = now;
     }

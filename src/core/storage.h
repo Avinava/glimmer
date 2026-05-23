@@ -24,7 +24,6 @@ struct Settings {
     bool     showForecast  = true;
     bool     showAiDash    = true;
     bool     showInfo      = true;
-    bool     showTrends    = true;
     bool     autoRotate    = true;
     bool     claudeWeeklyHero = false;
     bool     codexWeeklyHero  = false;
@@ -44,8 +43,6 @@ struct Settings {
     // Personalization
     String   userName;                // shown on splash + birthday
     String   birthday;                // MM-DD format, e.g. "07-15"
-    bool     timeOfDayMood = true;    // tint border by hour
-    bool     autoBrightness = true;   // dim at night automatically
 
     // Push API auth (also used for MCP)
     String   apiToken;                // bearer token for /push and /mcp

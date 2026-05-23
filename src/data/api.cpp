@@ -10,12 +10,11 @@
 static time_t parseISO8601(const char* s) {
     if (!s || strlen(s) < 19) return 0;
     struct tm t = {};
-    t.tm_year = atoi(s + 0) - 1900;
-    t.tm_mon  = atoi(s + 5) - 1;
-    t.tm_mday = atoi(s + 8);
-    t.tm_hour = atoi(s + 11);
-    t.tm_min  = atoi(s + 14);
-    t.tm_sec  = atoi(s + 17);
+    if (sscanf(s, "%d-%d-%dT%d:%d:%d",
+               &t.tm_year, &t.tm_mon, &t.tm_mday,
+               &t.tm_hour, &t.tm_min, &t.tm_sec) < 6) return 0;
+    t.tm_year -= 1900;
+    t.tm_mon  -= 1;
     // The API returns UTC timestamps. mktime uses local TZ, so temporarily
     // force UTC, parse, then restore.
     char* prev = getenv("TZ");
