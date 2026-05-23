@@ -70,7 +70,7 @@ static bool serveStatic(const String& uri) {
 
     File f = LittleFS.open(actual, "r");
     if (!f) return false;
-    if (useGz) server.sendHeader("Content-Encoding", "gzip");
+    // streamFile() auto-adds Content-Encoding: gzip when filename ends in .gz
     server.sendHeader("Cache-Control", "public, max-age=300");
     server.streamFile(f, contentTypeFor(path));
     f.close();
