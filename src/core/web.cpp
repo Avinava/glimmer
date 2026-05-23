@@ -127,6 +127,8 @@ static void handleApiGetSettings() {
     d["showInfo"]      = s.showInfo;
     d["showTrends"]    = s.showTrends;
     d["autoRotate"]    = s.autoRotate;
+    d["claudeWeeklyHero"] = s.claudeWeeklyHero;
+    d["codexWeeklyHero"]  = s.codexWeeklyHero;
     d["invertDisplay"] = s.invertDisplay;
     d["nightDim"]      = s.nightDim;
     d["nightStart"]    = s.nightStart;
@@ -210,6 +212,8 @@ static void applyIfPresent(Settings& s, JsonDocument& d) {
     applyBool("showInfo",     s.showInfo);
     applyBool("showTrends",   s.showTrends);
     applyBool("autoRotate",   s.autoRotate);
+    applyBool("claudeWeeklyHero", s.claudeWeeklyHero);
+    applyBool("codexWeeklyHero",  s.codexWeeklyHero);
     applyBool("invertDisplay",s.invertDisplay);
     applyBool("nightDim",    s.nightDim);
     applyBool("useFahrenheit", s.useFahrenheit);

@@ -259,24 +259,28 @@ void Display::drawSetupMode(const char* ap, const char* ip) {
 }
 
 void Display::drawConnecting(const char* ssid, int attempt) {
-    // Chrome (title + ssid) painted once per SSID; only the animated dot
-    // band and the "attempt N" line repaint as attempt advances.
+    // Chrome painted once per SSID; dots + attempt counter partial-redraw.
     if (strcmp(ssid, s_connectSsid) != 0) {
         clear();
+        drawLogo(SCREEN_W/2 - 8, 40, Theme::AMBER);
         useFont("Silkscreen-16");
         tft.setTextDatum(MC_DATUM);
-        tft.setTextColor(Theme::ACCENT, Theme::BG);
-        tft.drawString("Connecting WiFi", SCREEN_W/2, 70);
+        tft.setTextColor(Theme::INK, Theme::BG);
+        tft.drawString("GLIMMER", SCREEN_W/2, 68);
+        useFont("Silkscreen-12");
+        tft.setTextColor(Theme::MUTED, Theme::BG);
+        tft.drawString("Connecting WiFi", SCREEN_W/2, 100);
         useFont("DMMono-11");
         tft.setTextColor(Theme::INK, Theme::BG);
         tft.drawString(ssid, SCREEN_W/2, 124);
+        tft.setTextColor(Theme::MUTED, Theme::BG);
+        tft.drawString("v" FW_VERSION, SCREEN_W/2, 216);
         strncpy(s_connectSsid, ssid, sizeof(s_connectSsid) - 1);
         s_connectAttemptMin = -1;
         s_connectLitDot = -1;
     }
 
-    // 5-dot loader — only the previously-lit dot + the newly-lit dot need
-    // to repaint (2 fillRects per tick instead of 5).
+    // 5-dot loader
     int dotX = SCREEN_W/2 - 16;
     int lit = attempt % 5;
     if (lit != s_connectLitDot) {
@@ -286,7 +290,7 @@ void Display::drawConnecting(const char* ssid, int attempt) {
         s_connectLitDot = lit;
     }
 
-    // "attempt N" only changes every ~60 s (every 120 ticks of 500 ms).
+    // "attempt N" updates every ~60 s
     int attemptMin = (attempt / 120) + 1;
     if (attemptMin != s_connectAttemptMin) {
         tft.fillRect(0, 184, SCREEN_W, 16, Theme::BG);
@@ -312,13 +316,16 @@ void Display::drawError(const char* title, const char* msg) {
 }
 
 void Display::drawOtaProgress(uint8_t pct) {
-    // Chrome painted once at start of flash; only the percent + bar repaint.
     if (!s_otaChrome) {
         clear();
+        drawLogo(SCREEN_W/2 - 8, 30, Theme::AMBER);
         useFont("Silkscreen-16");
         tft.setTextDatum(MC_DATUM);
         tft.setTextColor(Theme::INK, Theme::BG);
-        tft.drawString("OTA UPDATE", SCREEN_W/2, 70);
+        tft.drawString("GLIMMER", SCREEN_W/2, 58);
+        useFont("Silkscreen-12");
+        tft.setTextColor(Theme::CORAL, Theme::BG);
+        tft.drawString("UPDATING", SCREEN_W/2, 82);
 
         useFont("DMMono-11");
         tft.setTextColor(Theme::MUTED, Theme::BG);
@@ -330,7 +337,6 @@ void Display::drawOtaProgress(uint8_t pct) {
     }
     if ((int)pct == s_otaLastPct) return;
 
-    // Percent text (clear + redraw a 64×32 band)
     char buf[6]; snprintf(buf, sizeof(buf), "%u%%", (unsigned)pct);
     tft.fillRect(SCREEN_W/2 - 32, 100, 64, 32, Theme::BG);
     useFont("VT323-44");
@@ -338,8 +344,6 @@ void Display::drawOtaProgress(uint8_t pct) {
     tft.setTextColor(Theme::CORAL, Theme::BG);
     tft.drawString(buf, SCREEN_W/2, 110);
 
-    // Progress bar (~12 px tall, full width). Use direct fillRect for liveness
-    // (pixelBar's discrete segments would only update every 10%).
     int barX = 12, barY = 148, barW = SCREEN_W - 24, barH = 12;
     tft.drawRect(barX, barY, barW, barH, Theme::LINE);
     int fillW = ((barW - 2) * pct) / 100;

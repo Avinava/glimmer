@@ -26,6 +26,8 @@ struct Settings {
     bool     showInfo      = true;
     bool     showTrends    = true;
     bool     autoRotate    = true;
+    bool     claudeWeeklyHero = false;
+    bool     codexWeeklyHero  = false;
     // Display polarity for this panel — keep true for SmallTV-Ultra ST7789.
     bool     invertDisplay = true;
     bool     nightDim      = false;

@@ -254,6 +254,30 @@ void loop() {
 
     uint32_t now = millis();
 
+    // WiFi health check — if disconnected >30 s, attempt reconnect
+    static uint32_t lastWifiCheck = 0;
+    static uint32_t wifiLostSince = 0;
+    if (!g_apMode && now - lastWifiCheck >= 10000) {
+        lastWifiCheck = now;
+        if (WiFi.status() != WL_CONNECTED) {
+            if (wifiLostSince == 0) {
+                wifiLostSince = now;
+                Serial.println(F("[wifi] connection lost, waiting..."));
+            } else if (now - wifiLostSince >= 30000) {
+                Serial.println(F("[wifi] reconnecting..."));
+                WiFi.disconnect(true);
+                delay(100);
+                WiFi.mode(WIFI_STA);
+                WiFi.begin(g_settings.wifiSSID.c_str(), g_settings.wifiPass.c_str());
+                wifiLostSince = now;
+            }
+        } else {
+            if (wifiLostSince != 0)
+                Serial.println(F("[wifi] reconnected"));
+            wifiLostSince = 0;
+        }
+    }
+
     // Periodic API refresh
     uint32_t refreshMs = (uint32_t)g_settings.refreshMin * 60000UL;
     if (!g_apMode && now - g_lastRefresh >= refreshMs) {

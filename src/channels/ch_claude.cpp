@@ -14,11 +14,11 @@
 #include "layout.h"
 #include <math.h>
 
-// ── tick() state cache ──
-static float  s_sessPct  = -2.f;
-static float  s_weekPct  = -2.f;
-static char   s_sessReset[12] = "";
-static char   s_weekSub[24]   = "";
+// ── tick() state cache (position-based, not source-based) ──
+static float  s_heroPct  = -2.f;
+static float  s_secPct   = -2.f;
+static char   s_heroReset[12] = "";
+static char   s_secSub[24]    = "";
 
 bool chClaudeEnabled(const ChannelCtx& ctx) {
     return ctx.settings && ctx.settings->showClaude && !ctx.settings->claudeKey.isEmpty();
@@ -33,7 +33,7 @@ static void paintSessReset(time_t resetEpoch) {
     tft.setTextDatum(TR_DATUM);
     tft.setTextColor(Theme::CORAL, Theme::BG);
     tft.drawString(s, SCREEN_W - 12, 30);
-    strncpy(s_sessReset, s.c_str(), sizeof(s_sessReset) - 1);
+    strncpy(s_heroReset, s.c_str(), sizeof(s_heroReset) - 1);
 }
 
 static void paintSessHero(float pct) {
@@ -84,7 +84,7 @@ static void paintWeeklySub(float pct, time_t weekReset) {
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::INK_DIM, Theme::BG);
     tft.drawString(s, 12, 170);
-    strncpy(s_weekSub, s.c_str(), sizeof(s_weekSub) - 1);
+    strncpy(s_secSub, s.c_str(), sizeof(s_secSub) - 1);
 }
 
 void chClaudeDraw(const ChannelCtx& ctx) {
@@ -100,67 +100,79 @@ void chClaudeDraw(const ChannelCtx& ctx) {
         Display::useFont("DMMono-11");
         tft.setTextColor(Theme::MUTED, Theme::BG);
         tft.drawString("Refresh token in web UI", SCREEN_W/2, 124);
-        s_sessPct = -2.f; s_weekPct = -2.f;
-        s_sessReset[0] = 0; s_weekSub[0] = 0;
+        s_heroPct = -2.f; s_secPct = -2.f;
+        s_heroReset[0] = 0; s_secSub[0] = 0;
         return;
     }
+
+    const bool swapped = ctx.settings->claudeWeeklyHero;
+    const float heroPct  = swapped ? d.weeklyPct   : d.sessionPct;
+    const float secPct   = swapped ? d.sessionPct  : d.weeklyPct;
+    const time_t heroRst = swapped ? d.weeklyReset : d.sessionReset;
+    const time_t secRst  = swapped ? d.sessionReset: d.weeklyReset;
 
     // Static labels (paint once)
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::MUTED, Theme::BG);
-    tft.drawString("5-HOUR WINDOW", 12, 30);
+    tft.drawString(swapped ? "WEEKLY" : "5-HOUR WINDOW", 12, 30);
 
     tft.setTextDatum(TR_DATUM);
     tft.drawString("until reset", SCREEN_W - 12, 48);
 
     // Dynamic regions via helpers
-    paintSessReset(d.sessionReset);
-    paintSessHero(d.sessionPct);
+    paintSessReset(heroRst);
+    paintSessHero(heroPct);
     Display::dotsDivider(12, 146, SCREEN_W - 24);
 
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::MUTED, Theme::BG);
-    tft.drawString("WEEKLY", 12, 154);
+    tft.drawString(swapped ? "5-HOUR WINDOW" : "WEEKLY", 12, 154);
 
-    paintWeeklyHero(d.weeklyPct);
-    paintWeeklySub(d.weeklyPct, d.weeklyReset);
+    paintWeeklyHero(secPct);
+    paintWeeklySub(secPct, secRst);
 
     // Seed cache for tick()
-    s_sessPct = (d.sessionPct < 0) ? -2.f : d.sessionPct;
-    s_weekPct = (d.weeklyPct  < 0) ? -2.f : d.weeklyPct;
+    s_heroPct = (heroPct < 0) ? -2.f : heroPct;
+    s_secPct  = (secPct  < 0) ? -2.f : secPct;
 }
 
 void chClaudeTick(const ChannelCtx& ctx) {
     if (!ctx.claude) return;
     const ClaudeData& d = *ctx.claude;
-    if (d.err[0]) return;  // error screen is static
+    if (d.err[0]) return;
 
-    // Reset countdown — refresh whenever the formatted string would change
-    String fresh = (d.sessionReset > 0) ? Api::formatCountdown(d.sessionReset) : String("--");
-    if (strcmp(fresh.c_str(), s_sessReset) != 0) paintSessReset(d.sessionReset);
+    const bool swapped = ctx.settings->claudeWeeklyHero;
+    const float heroPct  = swapped ? d.weeklyPct   : d.sessionPct;
+    const float secPct   = swapped ? d.sessionPct  : d.weeklyPct;
+    const time_t heroRst = swapped ? d.weeklyReset : d.sessionReset;
+    const time_t secRst  = swapped ? d.sessionReset: d.weeklyReset;
 
-    // Hero % — repaint on meaningful change
-    float p = (d.sessionPct < 0) ? -2.f : d.sessionPct;
-    if (fabsf(p - s_sessPct) > 0.4f) {
-        paintSessHero(d.sessionPct);
-        s_sessPct = p;
+    // Hero countdown
+    String fresh = (heroRst > 0) ? Api::formatCountdown(heroRst) : String("--");
+    if (strcmp(fresh.c_str(), s_heroReset) != 0) paintSessReset(heroRst);
+
+    // Hero %
+    float p = (heroPct < 0) ? -2.f : heroPct;
+    if (fabsf(p - s_heroPct) > 0.4f) {
+        paintSessHero(heroPct);
+        s_heroPct = p;
     }
 
-    // Weekly
-    float wp = (d.weeklyPct < 0) ? -2.f : d.weeklyPct;
-    if (fabsf(wp - s_weekPct) > 0.4f) {
-        paintWeeklyHero(d.weeklyPct);
-        s_weekPct = wp;
+    // Secondary %
+    float wp = (secPct < 0) ? -2.f : secPct;
+    if (fabsf(wp - s_secPct) > 0.4f) {
+        paintWeeklyHero(secPct);
+        s_secPct = wp;
     }
-    // Weekly sub (combo of pct + countdown)
+    // Secondary sub (combo of pct + countdown)
     String subFresh;
-    if (d.weeklyPct < 0) subFresh = "--";
+    if (secPct < 0) subFresh = "--";
     else {
-        subFresh = String((int)d.weeklyPct) + "%";
-        if (d.weeklyReset > 0) subFresh += " \xC2\xB7 " + Api::formatCountdown(d.weeklyReset);
+        subFresh = String((int)secPct) + "%";
+        if (secRst > 0) subFresh += " \xC2\xB7 " + Api::formatCountdown(secRst);
     }
-    if (strcmp(subFresh.c_str(), s_weekSub) != 0)
-        paintWeeklySub(d.weeklyPct, d.weeklyReset);
+    if (strcmp(subFresh.c_str(), s_secSub) != 0)
+        paintWeeklySub(secPct, secRst);
 }

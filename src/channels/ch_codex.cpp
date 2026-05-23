@@ -12,21 +12,17 @@
 #include "layout.h"
 #include <math.h>
 
-// ── tick cache ──
-static float s_primaryPct   = -2.f;
-static float s_secondaryPct = -2.f;
-static float s_credits      = -2.f;
+// ── tick cache (position-based) ──
+static float s_heroPct = -2.f;
+static float s_secPct  = -2.f;
+static float s_credits = -2.f;
 static char  s_rightLine[16] = "";
 
 bool chCodexEnabled(const ChannelCtx& ctx) {
     return ctx.settings && ctx.settings->showCodex && !ctx.settings->codexToken.isEmpty();
 }
 
-static void paintRightStack(const CodexData& d) {
-    // Clear region spans y=28..66 to fully cover both the Silkscreen-12
-    // value line (y=32, height ~14) AND the DMMono-11 subtitle (y=50,
-    // height ~13 → bottom row at y=63). Previous 30px height was 5px
-    // short on the subtitle, leaving residual when value strings shrank.
+static void paintRightStack(const CodexData& d, time_t heroReset) {
     tft.fillRect(SCREEN_W - 100, 28, 90, 38, Theme::BG);
     if (d.creditsRemain >= 0) {
         char credits[16]; snprintf(credits, sizeof(credits), "$%.2f", d.creditsRemain);
@@ -38,8 +34,8 @@ static void paintRightStack(const CodexData& d) {
         tft.setTextColor(Theme::MUTED, Theme::BG);
         tft.drawString("credits", SCREEN_W - 12, 50);
         strncpy(s_rightLine, credits, sizeof(s_rightLine) - 1);
-    } else if (d.primaryReset > 0) {
-        String r = Api::formatCountdown(d.primaryReset);
+    } else if (heroReset > 0) {
+        String r = Api::formatCountdown(heroReset);
         Display::useFont("Silkscreen-12");
         tft.setTextDatum(TR_DATUM);
         tft.setTextColor(Theme::LILAC, Theme::BG);
@@ -107,7 +103,7 @@ void chCodexDraw(const ChannelCtx& ctx) {
         Display::useFont("DMMono-11");
         tft.setTextColor(Theme::MUTED, Theme::BG);
         tft.drawString("Refresh token in web UI", SCREEN_W/2, 124);
-        s_primaryPct = -2.f; s_secondaryPct = -2.f; s_credits = -2.f;
+        s_heroPct = -2.f; s_secPct = -2.f; s_credits = -2.f;
         s_rightLine[0] = 0;
         return;
     }
@@ -119,27 +115,32 @@ void chCodexDraw(const ChannelCtx& ctx) {
         return;
     }
 
+    const bool swapped = ctx.settings->codexWeeklyHero;
+    const float heroPct  = swapped ? d.secondaryPct   : d.primaryPct;
+    const float secPct   = swapped ? d.primaryPct     : d.secondaryPct;
+    const time_t heroRst = swapped ? d.secondaryReset : d.primaryReset;
+
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::MUTED, Theme::BG);
-    tft.drawString("PRIMARY", 12, 32);
+    tft.drawString(swapped ? "WEEKLY" : "PRIMARY", 12, 32);
 
-    paintRightStack(d);
-    paintPrimaryHero(d.primaryPct);
+    paintRightStack(d, heroRst);
+    paintPrimaryHero(heroPct);
 
     Display::dotsDivider(12, 146, SCREEN_W - 24);
 
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::MUTED, Theme::BG);
-    tft.drawString("WEEKLY", 12, 156);
+    tft.drawString(swapped ? "PRIMARY" : "WEEKLY", 12, 156);
 
-    paintSecondary(d.secondaryPct);
+    paintSecondary(secPct);
 
     // Seed cache
-    s_primaryPct   = (d.primaryPct   < 0) ? -2.f : d.primaryPct;
-    s_secondaryPct = (d.secondaryPct < 0) ? -2.f : d.secondaryPct;
-    s_credits      = d.creditsRemain;
+    s_heroPct = (heroPct < 0) ? -2.f : heroPct;
+    s_secPct  = (secPct  < 0) ? -2.f : secPct;
+    s_credits = d.creditsRemain;
 }
 
 void chCodexTick(const ChannelCtx& ctx) {
@@ -147,25 +148,30 @@ void chCodexTick(const ChannelCtx& ctx) {
     const CodexData& d = *ctx.codex;
     if (d.err[0] || !d.valid) return;
 
+    const bool swapped = ctx.settings->codexWeeklyHero;
+    const float heroPct  = swapped ? d.secondaryPct   : d.primaryPct;
+    const float secPct   = swapped ? d.primaryPct     : d.secondaryPct;
+    const time_t heroRst = swapped ? d.secondaryReset : d.primaryReset;
+
     // Right stack — repaint when credits change OR countdown text changes
     bool rightDirty = false;
     if (d.creditsRemain >= 0) {
         if (fabsf(d.creditsRemain - s_credits) > 0.005f) rightDirty = true;
-    } else if (d.primaryReset > 0) {
-        String r = Api::formatCountdown(d.primaryReset);
+    } else if (heroRst > 0) {
+        String r = Api::formatCountdown(heroRst);
         if (strcmp(r.c_str(), s_rightLine) != 0) rightDirty = true;
     }
-    if (rightDirty) { paintRightStack(d); s_credits = d.creditsRemain; }
+    if (rightDirty) { paintRightStack(d, heroRst); s_credits = d.creditsRemain; }
 
-    float p = (d.primaryPct < 0) ? -2.f : d.primaryPct;
-    if (fabsf(p - s_primaryPct) > 0.4f) {
-        paintPrimaryHero(d.primaryPct);
-        s_primaryPct = p;
+    float p = (heroPct < 0) ? -2.f : heroPct;
+    if (fabsf(p - s_heroPct) > 0.4f) {
+        paintPrimaryHero(heroPct);
+        s_heroPct = p;
     }
 
-    float sp = (d.secondaryPct < 0) ? -2.f : d.secondaryPct;
-    if (fabsf(sp - s_secondaryPct) > 0.4f) {
-        paintSecondary(d.secondaryPct);
-        s_secondaryPct = sp;
+    float sp = (secPct < 0) ? -2.f : secPct;
+    if (fabsf(sp - s_secPct) > 0.4f) {
+        paintSecondary(secPct);
+        s_secPct = sp;
     }
 }

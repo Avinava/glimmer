@@ -34,6 +34,8 @@ Settings Storage::load() {
     s.showInfo      = doc["show_info"]      | true;
     s.showTrends    = doc["show_trends"]    | true;
     s.autoRotate    = doc["auto_rotate"]    | true;
+    s.claudeWeeklyHero = doc["claude_weekly_hero"] | false;
+    s.codexWeeklyHero  = doc["codex_weekly_hero"]  | false;
     s.invertDisplay = doc["invert_display"] | true;
     s.nightDim      = doc["night_dim"]      | false;
     s.nightStart    = doc["night_start"]    | 22;
@@ -72,6 +74,8 @@ bool Storage::save(const Settings& s) {
     doc["show_info"]     = s.showInfo;
     doc["show_trends"]   = s.showTrends;
     doc["auto_rotate"]   = s.autoRotate;
+    doc["claude_weekly_hero"] = s.claudeWeeklyHero;
+    doc["codex_weekly_hero"]  = s.codexWeeklyHero;
     doc["invert_display"]= s.invertDisplay;
     doc["night_dim"]    = s.nightDim;
     doc["night_start"]  = s.nightStart;
