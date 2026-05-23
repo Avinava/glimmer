@@ -21,12 +21,17 @@ static constexpr int CLOCK_Y  = 42;
 static constexpr int CLOCK_H  = 86;
 static const char*   CLOCK_FN = "VT323-86";
 
-static const char* greetingFor(int hour) {
-    if (hour < 5)  return "rest well, friend";
-    if (hour < 12) return "good morning, friend";
-    if (hour < 17) return "good afternoon, friend";
-    if (hour < 21) return "good evening, friend";
-    return "winding down, friend";
+static char s_greetBuf[40];
+static const char* greetingFor(int hour, const char* name) {
+    const char* who = (name && name[0]) ? name : "friend";
+    const char* prefix;
+    if (hour < 5)       prefix = "rest well";
+    else if (hour < 12) prefix = "good morning";
+    else if (hour < 17) prefix = "good afternoon";
+    else if (hour < 21) prefix = "good evening";
+    else                prefix = "winding down";
+    snprintf(s_greetBuf, sizeof(s_greetBuf), "%s, %s", prefix, who);
+    return s_greetBuf;
 }
 
 static void clockGeom(int& hhX, int& colonX, int& mmX, int& digitW, int& colonW) {
@@ -123,7 +128,8 @@ void chClockDraw(const ChannelCtx& ctx) {
     s_lastMM = tmv.tm_min;
     s_lastDayHour = tmv.tm_hour;
 
-    const char* g = greetingFor(tmv.tm_hour);
+    const char* uname = ctx.settings ? ctx.settings->userName.c_str() : "";
+    const char* g = greetingFor(tmv.tm_hour, uname);
     paintGreeting(g);
     strncpy(s_lastGreet, g, sizeof(s_lastGreet) - 1);
 
@@ -162,7 +168,8 @@ void chClockTick(const ChannelCtx& ctx) {
             paintDateRow(date);
             strncpy(s_lastDate, date, sizeof(s_lastDate) - 1);
         }
-        const char* g = greetingFor(tmv.tm_hour);
+        const char* uname = ctx.settings ? ctx.settings->userName.c_str() : "";
+        const char* g = greetingFor(tmv.tm_hour, uname);
         if (strcmp(g, s_lastGreet) != 0) {
             paintGreeting(g);
             strncpy(s_lastGreet, g, sizeof(s_lastGreet) - 1);

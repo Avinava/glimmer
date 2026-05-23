@@ -290,3 +290,41 @@ button.danger {
   vertical-align: middle;
 }
 .swatch.active { border-color: var(--sw); color: var(--ink); }
+
+.input-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.input-toggle input { flex: 1; padding-right: 50px; }
+.toggle-vis {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  padding: 4px 6px;
+  cursor: pointer;
+  margin: 0;
+}
+.toggle-vis:hover { color: var(--ink); }
+
+.city-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0;
+}
+.city-result {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  font-size: 0.8rem;
+  padding: 6px 10px;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 4px;
+  margin: 0;
+}
+.city-result:hover { border-color: var(--coral); color: var(--ink); }

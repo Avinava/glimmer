@@ -64,6 +64,8 @@
       <div class="info-row"><span class="k">Free heap</span><span class="v amber" x-text="state.heap != null ? Math.round(state.heap/1024) + 'K' : '—'"></span></div>
       <div class="info-row"><span class="k">Claude</span><span class="v" x-bind:class="state.claude_configured ? 'mint' : 'muted'" x-text="state.claude_configured ? 'configured' : 'not configured'"></span></div>
       <div class="info-row"><span class="k">Codex</span><span class="v" x-bind:class="state.codex_configured ? 'mint' : 'muted'" x-text="state.codex_configured ? 'configured' : 'not configured'"></span></div>
+      <button x-on:click="triggerRefresh()" class="secondary" style="margin-top: 12px;"
+              x-bind:disabled="refreshing" x-text="refreshing ? 'Refreshing...' : 'Refresh Now'"></button>
     </article>
 
     <article>
@@ -97,9 +99,12 @@
       <label>SSID</label>
       <input x-model="settings.wifiSSID" placeholder="home network">
       <label>Password</label>
-      <input type="password" x-model="settings.wifiPass" placeholder="****">
+      <div class="input-toggle" x-data="{show:false}">
+        <input x-bind:type="show ? 'text' : 'password'" x-model="settings.wifiPass" placeholder="****">
+        <button type="button" class="toggle-vis" x-on:click="show=!show" x-text="show ? 'hide' : 'show'"></button>
+      </div>
       <div class="hint">Save &amp; Restart applies new Wi-Fi credentials. Device will reboot.</div>
-      <button x-on:click="saveSettings(true)" class="primary">Save &amp; Restart</button>
+      <button x-on:click="saveSettings(true)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save & Restart'"></button>
     </article>
   </section>
 
@@ -108,19 +113,28 @@
     <article>
       <h2>Claude</h2>
       <label>Session key</label>
-      <input type="password" x-model="settings.claudeKey" placeholder="sk-ant-sid02-...">
+      <div class="input-toggle" x-data="{show:false}">
+        <input x-bind:type="show ? 'text' : 'password'" x-model="settings.claudeKey" placeholder="sk-ant-sid02-...">
+        <button type="button" class="toggle-vis" x-on:click="show=!show" x-text="show ? 'hide' : 'show'"></button>
+      </div>
       <div class="hint">claude.ai → DevTools → Application → Cookies → <code>sessionKey</code></div>
     </article>
     <article>
       <h2>Codex</h2>
       <label>Bearer token</label>
-      <input type="password" x-model="settings.codexToken" placeholder="eyJ...">
+      <div class="input-toggle" x-data="{show:false}">
+        <input x-bind:type="show ? 'text' : 'password'" x-model="settings.codexToken" placeholder="eyJ...">
+        <button type="button" class="toggle-vis" x-on:click="show=!show" x-text="show ? 'hide' : 'show'"></button>
+      </div>
       <div class="hint">chatgpt.com → DevTools → Network → any <code>backend-api</code> request → <code>authorization</code> header (value after "Bearer ")</div>
       <label>Device ID</label>
       <input x-model="settings.codexDeviceId" placeholder="uuid">
       <div class="hint">Same request → <code>oai-device-id</code> header.</div>
+      <label>Model label</label>
+      <input x-model="settings.codexModelLabel" placeholder="GPT-5" maxlength="11">
+      <div class="hint">Shown in the Codex channel status bar. Leave blank to hide.</div>
     </article>
-    <button x-on:click="saveSettings(false)" class="primary">Save</button>
+    <button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button>
   </section>
 
   <!-- CHANNELS -->
@@ -168,14 +182,23 @@
     </article>
     <article>
       <h2>Weather</h2>
+      <label>City search</label>
+      <input x-model="weatherCity" placeholder="Search city..." x-on:input.debounce.500ms="searchCity()">
+      <template x-if="cityResults && cityResults.length > 0">
+        <div class="city-results">
+          <template x-for="c in cityResults" :key="c.id">
+            <button type="button" class="city-result" x-on:click="selectCity(c)" x-text="c.name + (c.admin1 ? ', ' + c.admin1 : '') + ' (' + c.country_code + ')'"></button>
+          </template>
+        </div>
+      </template>
       <label>Latitude</label>
       <input x-model.number="settings.weatherLat" placeholder="22.5726">
       <label>Longitude</label>
       <input x-model.number="settings.weatherLon" placeholder="88.3639">
-      <div class="hint">Free Open-Meteo (no API key). Use any coordinates from openstreetmap.org.</div>
+      <div class="hint">Search a city above or enter coordinates directly from openstreetmap.org.</div>
       <label class="row"><input type="checkbox" x-model="settings.useFahrenheit">Show °F (instead of °C)</label>
     </article>
-    <button x-on:click="saveSettings(false)" class="primary">Save</button>
+    <button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button>
   </section>
 
   <!-- YOU -->
@@ -230,7 +253,7 @@
         <option value="50">50%</option>
       </select>
     </article>
-    <button x-on:click="saveSettings(false)" class="primary">Save</button>
+    <button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button>
   </section>
 
   <!-- PUSH & MCP -->
@@ -238,9 +261,12 @@
     <article>
       <h2>API token</h2>
       <label>Bearer token (optional)</label>
-      <input type="password" x-model="settings.apiToken" placeholder="leave blank for unauthenticated">
+      <div class="input-toggle" x-data="{show:false}">
+        <input x-bind:type="show ? 'text' : 'password'" x-model="settings.apiToken" placeholder="leave blank for unauthenticated">
+        <button type="button" class="toggle-vis" x-on:click="show=!show" x-text="show ? 'hide' : 'show'"></button>
+      </div>
       <div class="hint">When set, <code>/push</code> and <code>/mcp</code> require <code>Authorization: Bearer &lt;token&gt;</code>.</div>
-      <button x-on:click="saveSettings(false)" class="primary">Save</button>
+      <button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button>
     </article>
     <article>
       <h2>cURL</h2>
@@ -294,6 +320,10 @@ function app() {
     settings: {},
     pushForm: { title: '', value: '', subtitle: '', color: 'mint', duration_s: 30 },
     toast: { msg: '', error: false, _t: null },
+    saving: false,
+    refreshing: false,
+    weatherCity: '',
+    cityResults: [],
 
     async boot() {
       await this.refreshState();
@@ -317,6 +347,7 @@ function app() {
     },
 
     async saveSettings(restart) {
+      this.saving = true;
       try {
         const r = await fetch('/api/settings', {
           method: 'POST',
@@ -330,6 +361,7 @@ function app() {
           this.showToast('Save failed', true);
         }
       } catch (e) { this.showToast('Network error', true); }
+      finally { this.saving = false; }
     },
 
     async sendPush() {
@@ -343,6 +375,18 @@ function app() {
         if (r.ok) this.showToast('Pushed to device');
         else this.showToast('Push failed (HTTP ' + r.status + ')', true);
       } catch (e) { this.showToast('Network error', true); }
+    },
+
+    async triggerRefresh() {
+      this.refreshing = true;
+      try {
+        const headers = {};
+        if (this.settings.apiToken) headers['Authorization'] = 'Bearer ' + this.settings.apiToken;
+        const r = await fetch('/api/refresh', {method: 'POST', headers});
+        if (r.ok) this.showToast('Refresh triggered');
+        else this.showToast('Refresh failed', true);
+      } catch (e) { this.showToast('Network error', true); }
+      finally { this.refreshing = false; }
     },
 
     async factoryReset() {
@@ -361,7 +405,24 @@ function app() {
       } catch (e) {}
     },
 
+    async searchCity() {
+      if (!this.weatherCity || this.weatherCity.length < 2) { this.cityResults = []; return; }
+      try {
+        const r = await fetch('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(this.weatherCity) + '&count=5&language=en');
+        const d = await r.json();
+        this.cityResults = d.results || [];
+      } catch (e) { this.cityResults = []; }
+    },
+
+    selectCity(c) {
+      this.settings.weatherLat = Math.round(c.latitude * 10000) / 10000;
+      this.settings.weatherLon = Math.round(c.longitude * 10000) / 10000;
+      this.weatherCity = c.name + (c.admin1 ? ', ' + c.admin1 : '');
+      this.cityResults = [];
+    },
+
     async exportConfig() {
+      if (!confirm('This file contains your API keys and Wi-Fi password in plain text. Continue?')) return;
       const r = await fetch('/api/export');
       const blob = await r.blob();
       const url = URL.createObjectURL(blob);

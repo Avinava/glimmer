@@ -19,7 +19,8 @@ Settings Storage::load() {
     s.wifiPass      = doc["wifi_pass"]      | "";
     s.claudeKey     = doc["claude_key"]     | "";
     s.codexToken    = doc["codex_token"]    | "";
-    s.codexDeviceId = doc["codex_dev"]      | "";
+    s.codexDeviceId    = doc["codex_dev"]      | "";
+    s.codexModelLabel  = doc["codex_model"]    | "";
     s.refreshMin    = doc["refresh_min"]    | 5;
     s.channelSec    = doc["channel_sec"]    | 8;
     s.brightness    = doc["brightness"]     | 80;
@@ -57,6 +58,7 @@ bool Storage::save(const Settings& s) {
     doc["claude_key"]   = s.claudeKey;
     doc["codex_token"]  = s.codexToken;
     doc["codex_dev"]    = s.codexDeviceId;
+    doc["codex_model"]  = s.codexModelLabel;
     doc["refresh_min"]  = s.refreshMin;
     doc["channel_sec"]  = s.channelSec;
     doc["brightness"]   = s.brightness;

@@ -9,6 +9,7 @@ struct Settings {
     String   claudeKey;        // sk-ant-sid02-...
     String   codexToken;       // Bearer
     String   codexDeviceId;    // UUID
+    String   codexModelLabel;  // user-set status bar label, e.g. "GPT-5"
     uint32_t refreshMin    = 5;
     uint32_t channelSec    = 8;
     uint8_t  brightness    = 80;     // 0-100

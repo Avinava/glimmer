@@ -6,6 +6,7 @@
 #include "theme.h"
 #include "config.h"
 #include "weather.h"
+#include "weather_icons.h"
 #include <time.h>
 
 extern WeatherData* weatherSnapshotPtr();
@@ -40,9 +41,10 @@ static void paintRow(int i, const WeatherDay& day, float gMin, float range, bool
                      isToday ? Theme::PANEL : Theme::BG);
     tft.drawString(labels[i], 10, y + 4);
 
+    WeatherIcon::draw(10, y + 26, day.code, isToday ? Theme::SKY : Theme::MUTED);
     Display::useFont("DMMono-11");
     tft.setTextColor(Theme::MUTED, isToday ? Theme::PANEL : Theme::BG);
-    tft.drawString(Weather::describe(day.code), 10, y + 28);
+    tft.drawString(Weather::describe(day.code), 28, y + 28);
 
     float dMin = day.tmin, dMax = day.tmax;
     if (dMin > -900 && dMax > -900) {

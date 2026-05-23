@@ -1,9 +1,5 @@
 // Codex — Claude-style hero layout (mirrors ch_claude.cpp with LILAC accent).
-//
-// Note: the full Codex design (screens.jsx:239-290) wants a 24-h spark histogram
-// driven by an in-RAM history buffer. That requires data plumbing not in v0.12 —
-// for now we ship the symmetric Claude layout with primary % hero + weekly bar,
-// using the existing CodexData fields.
+// v0.19: 24-h spark histogram at the bottom, driven by hourlyPct[] ring buffer.
 
 #include "channel.h"
 #include "display.h"
@@ -11,12 +7,14 @@
 #include "config.h"
 #include "layout.h"
 #include <math.h>
+#include <time.h>
 
 // ── tick cache (position-based) ──
 static float s_heroPct = -2.f;
 static float s_secPct  = -2.f;
 static float s_credits = -2.f;
 static char  s_rightLine[16] = "";
+static int   s_sparkHour = -1;
 
 bool chCodexEnabled(const ChannelCtx& ctx) {
     return ctx.settings && ctx.settings->showCodex && !ctx.settings->codexToken.isEmpty();
@@ -92,9 +90,35 @@ static void paintSecondary(float pct) {
                      pct < 0 ? 0 : pct, uc);
 }
 
+static void paintSparkBar(const CodexData& d, int curHour) {
+    const int sx = 12, sy = 210, sw = SCREEN_W - 24, sh = 16;
+    const int barW = sw / 24;
+    tft.fillRect(sx, sy - 12, sw, sh + 12, Theme::BG);
+
+    Display::useFont("DMMono-11");
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextColor(Theme::MUTED, Theme::BG);
+    tft.drawString("24H", sx, sy - 12);
+
+    for (int i = 0; i < 24; i++) {
+        int bx = sx + i * barW;
+        if (!d.hourlyValid[i]) {
+            tft.drawFastHLine(bx, sy + sh - 1, barW - 1, Theme::LINE);
+            continue;
+        }
+        int bh = (d.hourlyPct[i] * sh) / 100;
+        if (bh < 1) bh = 1;
+        uint16_t c = (i == curHour) ? Theme::LILAC : Theme::INK_DIM;
+        tft.fillRect(bx, sy + sh - bh, barW - 1, bh, c);
+    }
+    s_sparkHour = curHour;
+}
+
 void chCodexDraw(const ChannelCtx& ctx) {
     Display::clear();
-    Display::statusBar("Codex", "GPT-5", Theme::LILAC);
+    const char* cxModel = ctx.settings->codexModelLabel.length() > 0
+                        ? ctx.settings->codexModelLabel.c_str() : "";
+    Display::statusBar("Codex", cxModel, Theme::LILAC);
 
     const CodexData& d = *ctx.codex;
     if (d.err[0]) {
@@ -139,6 +163,10 @@ void chCodexDraw(const ChannelCtx& ctx) {
 
     paintSecondary(secPct);
 
+    time_t t = time(nullptr);
+    struct tm tm; localtime_r(&t, &tm);
+    paintSparkBar(d, tm.tm_hour);
+
     // Seed cache
     s_heroPct = (heroPct < 0) ? -2.f : heroPct;
     s_secPct  = (secPct  < 0) ? -2.f : secPct;
@@ -175,5 +203,11 @@ void chCodexTick(const ChannelCtx& ctx) {
     if (fabsf(sp - s_secPct) > 0.4f) {
         paintSecondary(secPct);
         s_secPct = sp;
+    }
+
+    time_t t = time(nullptr);
+    struct tm tm; localtime_r(&t, &tm);
+    if (tm.tm_hour != s_sparkHour) {
+        paintSparkBar(d, tm.tm_hour);
     }
 }

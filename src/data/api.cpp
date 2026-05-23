@@ -178,21 +178,33 @@ bool Api::fetchClaude(const Settings& s, ClaudeData& out) {
     out.sessionReset = resetFromKey("five_hour");
     out.weeklyReset  = resetFromKey("seven_day");
 
+    out.rawKeys[0] = '\0';
+    int rawPos = 0;
     for (auto& m : out.models) { m.pct = -1.0f; m.label[0] = '\0'; }
     int slot = 0;
     for (JsonPair kv : doc.as<JsonObject>()) {
-        if (slot >= 3) break;
         const char* key = kv.key().c_str();
         if (!kv.value().is<JsonObject>()) continue;
         JsonVariant u = kv.value()["utilization"];
         if (u.isNull()) continue;
+        int n = snprintf(out.rawKeys + rawPos, sizeof(out.rawKeys) - rawPos,
+                         "%s%s=%.0f", rawPos ? "," : "", key, u.as<float>());
+        if (n > 0 && rawPos + n < (int)sizeof(out.rawKeys)) rawPos += n;
         String k(key);
-        if (k == "five_hour" || k == "seven_day") continue;
+        if (!k.startsWith("seven_day_") && !k.startsWith("five_hour_")) continue;
+        if (slot >= 3) continue;
         float rem = 100.0f - u.as<float>();
         if (rem < 0) rem = 0; if (rem > 100) rem = 100;
-        String lbl = k.startsWith("seven_day_") ? k.substring(10) : k;
+        String lbl = k;
+        if (lbl.startsWith("seven_day_"))  lbl = lbl.substring(10);
+        else if (lbl.startsWith("five_hour_")) lbl = lbl.substring(10);
         lbl.toUpperCase();
         if (lbl.length() > 10) lbl = lbl.substring(0, 10);
+        bool dup = false;
+        for (int i = 0; i < slot; i++) {
+            if (strcmp(out.models[i].label, lbl.c_str()) == 0) { dup = true; break; }
+        }
+        if (dup) continue;
         out.models[slot].pct = rem;
         strncpy(out.models[slot].label, lbl.c_str(), sizeof(out.models[0].label) - 1);
         out.models[slot].label[sizeof(out.models[0].label) - 1] = '\0';
@@ -248,5 +260,14 @@ bool Api::fetchCodex(const Settings& s, CodexData& out) {
     }
 
     out.valid = true;
+
+    time_t t = time(nullptr);
+    if (t > 1000000000L) {
+        struct tm tm; localtime_r(&t, &tm);
+        int h = tm.tm_hour;
+        out.hourlyPct[h]   = (uint8_t)(out.primaryPct < 0 ? 0 : out.primaryPct);
+        out.hourlyValid[h] = true;
+    }
+
     return true;
 }

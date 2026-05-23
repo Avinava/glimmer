@@ -22,6 +22,7 @@
 #include "theme.h"
 #include "config.h"
 #include "weather.h"
+#include "weather_icons.h"
 #include <ESP8266WiFi.h>
 #include <time.h>
 #include <math.h>
@@ -112,12 +113,19 @@ static void paintWeatherFeels(const WeatherData* w, bool f) {
 }
 
 static void paintWeatherCondition(const WeatherData* w) {
-    tft.fillRect(SCREEN_W - 86, 62, 80, 14, Theme::BG);
-    Display::useFont("DMMono-11");
-    tft.setTextDatum(TR_DATUM);
-    tft.setTextColor(Theme::INK_DIM, Theme::BG);
-    tft.drawString((w && w->valid) ? Weather::describe(w->code) : "--",
-                   SCREEN_W - 10, 62);
+    tft.fillRect(SCREEN_W - 86, 62, 80, 16, Theme::BG);
+    if (w && w->valid) {
+        WeatherIcon::draw(SCREEN_W - 86, 62, w->code, Theme::SKY);
+        Display::useFont("DMMono-11");
+        tft.setTextDatum(TL_DATUM);
+        tft.setTextColor(Theme::INK_DIM, Theme::BG);
+        tft.drawString(Weather::describe(w->code), SCREEN_W - 68, 64);
+    } else {
+        Display::useFont("DMMono-11");
+        tft.setTextDatum(TR_DATUM);
+        tft.setTextColor(Theme::INK_DIM, Theme::BG);
+        tft.drawString("--", SCREEN_W - 10, 62);
+    }
 }
 
 static void paintMeter(int y, const char* tag, uint16_t tagColor,

@@ -14,6 +14,7 @@
 
 #include "web.h"
 #include "display.h"
+#include "api.h"
 #include <ESP8266HTTPUpdateServer.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
@@ -27,6 +28,14 @@ static Settings*               pSettings = nullptr;
 extern void pushCardSet(const char* title, const char* value, const char* subtitle,
                         uint16_t color, uint32_t durationMs);
 extern void pushCardClear();
+
+// Defined in src/main.cpp
+extern const char* mainActiveChannelName();
+extern int         mainEnabledCount();
+extern int         mainTotalCount();
+extern void        mainTriggerRefresh();
+extern const char* mainEnabledChannelName(int idx);
+extern const ClaudeData* mainClaudeData();
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -110,7 +119,8 @@ static void handleApiGetSettings() {
     d["wifiPass"]      = maskSecret(s.wifiPass);
     d["claudeKey"]     = maskSecret(s.claudeKey);
     d["codexToken"]    = maskSecret(s.codexToken);
-    d["codexDeviceId"] = s.codexDeviceId;
+    d["codexDeviceId"]    = s.codexDeviceId;
+    d["codexModelLabel"]  = s.codexModelLabel;
     d["apiToken"]      = maskSecret(s.apiToken);
     d["refreshMin"]    = s.refreshMin;
     d["channelSec"]    = s.channelSec;
@@ -153,7 +163,8 @@ static void applyIfPresent(Settings& s, JsonDocument& d) {
     applyStr("wifiPass",      s.wifiPass);
     applyStr("claudeKey",     s.claudeKey);
     applyStr("codexToken",    s.codexToken);
-    applyStr("codexDeviceId", s.codexDeviceId);
+    applyStr("codexDeviceId",    s.codexDeviceId);
+    applyStr("codexModelLabel",  s.codexModelLabel);
     applyStr("apiToken",      s.apiToken);
     applyStr("userName",      s.userName);
     applyStr("birthday",      s.birthday);
@@ -336,14 +347,27 @@ static void handleMcp() {
     }
     else if (strcmp(method, "tools/list") == 0) {
         JsonArray tools = resp["result"]["tools"].to<JsonArray>();
-        auto add = [&](const char* name, const char* desc) {
-            JsonObject t = tools.add<JsonObject>();
-            t["name"] = name;
-            t["description"] = desc;
-            t["inputSchema"]["type"] = "object";
-        };
-        add("push_card",  "Flash a status card on the SmallTV screen for a short time");
-        add("get_state",  "Return the device's current state (channel, usage, uptime)");
+
+        // push_card
+        JsonObject t1 = tools.add<JsonObject>();
+        t1["name"] = "push_card";
+        t1["description"] = "Flash a status card on the SmallTV screen for a short time";
+        JsonObject s1 = t1["inputSchema"].to<JsonObject>();
+        s1["type"] = "object";
+        JsonObject p1 = s1["properties"].to<JsonObject>();
+        p1["title"]["type"] = "string";    p1["title"]["description"]    = "Card headline";
+        p1["value"]["type"] = "string";    p1["value"]["description"]    = "Large hero value";
+        p1["subtitle"]["type"] = "string"; p1["subtitle"]["description"] = "Footer text";
+        p1["color"]["type"] = "string";    p1["color"]["description"]    = "coral, amber, mint, sky, or lilac";
+        p1["duration_s"]["type"] = "integer"; p1["duration_s"]["description"] = "Display time in seconds (max 300)";
+        JsonArray r1 = s1["required"].to<JsonArray>();
+        r1.add("title"); r1.add("value");
+
+        // get_state
+        JsonObject t2 = tools.add<JsonObject>();
+        t2["name"] = "get_state";
+        t2["description"] = "Return the device's current state (active channel, usage, uptime, heap, wifi)";
+        t2["inputSchema"]["type"] = "object";
     }
     else if (strcmp(method, "tools/call") == 0) {
         const char* name = req["params"]["name"] | "";
@@ -360,11 +384,32 @@ static void handleMcp() {
             resp["result"]["content"][0]["text"] = "Card pushed";
         } else if (strcmp(name, "get_state") == 0) {
             JsonObject st = resp["result"]["content"][0]["json"].to<JsonObject>();
-            st["fw"]       = FW_VERSION;
-            st["uptime_s"] = (uint32_t)(millis() / 1000);
-            st["heap"]     = ESP.getFreeHeap();
-            st["maxblk"]   = ESP.getMaxFreeBlockSize();
-            st["wifi"]     = WiFi.status() == WL_CONNECTED ? "connected" : "ap";
+            st["fw"]              = FW_VERSION;
+            st["uptime_s"]        = (uint32_t)(millis() / 1000);
+            st["heap"]            = ESP.getFreeHeap();
+            st["maxblk"]          = ESP.getMaxFreeBlockSize();
+            st["wifi"]            = WiFi.status() == WL_CONNECTED ? "connected" : "ap";
+            st["rssi"]            = WiFi.RSSI();
+            st["active_channel"]  = mainActiveChannelName();
+            st["total_channels"]  = mainTotalCount();
+            st["brightness"]      = pSettings->brightness;
+            JsonArray ec = st["enabled_channels"].to<JsonArray>();
+            for (int i = 0; i < mainEnabledCount(); i++) {
+                const char* n = mainEnabledChannelName(i);
+                if (n) ec.add(n);
+            }
+            const ClaudeData* cd = mainClaudeData();
+            if (cd && cd->valid) {
+                JsonArray ma = st["claude_models"].to<JsonArray>();
+                for (int i = 0; i < 3; i++) {
+                    if (cd->models[i].label[0]) {
+                        JsonObject m = ma.add<JsonObject>();
+                        m["label"] = cd->models[i].label;
+                        m["pct"]   = (int)cd->models[i].pct;
+                    }
+                }
+                if (cd->rawKeys[0]) st["claude_raw_keys"] = cd->rawKeys;
+            }
             resp["result"]["content"][0]["type"] = "json";
         } else {
             resp["error"]["code"]    = -32602;
@@ -401,6 +446,11 @@ void Web::begin(Settings& settings) {
     server.on("/api/import",         HTTP_POST, handleApiImport);
     server.on("/api/factory-reset",  HTTP_POST, handleFactoryReset);
     server.on("/api/reboot",         HTTP_POST, handleReboot);
+    server.on("/api/refresh",        HTTP_POST, []() {
+        if (!checkAuth()) { server.send(401, "application/json", "{\"error\":\"unauthorized\"}"); return; }
+        mainTriggerRefresh();
+        server.send(200, "application/json", "{\"ok\":true}");
+    });
 
     // Legacy + event endpoints
     server.on("/push",               HTTP_POST, handlePush);

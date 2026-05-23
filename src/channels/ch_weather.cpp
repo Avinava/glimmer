@@ -10,6 +10,7 @@
 #include "theme.h"
 #include "config.h"
 #include "weather.h"
+#include "weather_icons.h"
 #include <time.h>
 #include <math.h>
 
@@ -91,10 +92,11 @@ void chWeatherDraw(const ChannelCtx& ctx) {
     tft.setTextColor(Theme::SKY, Theme::BG);
     tft.drawString("°", 12 + tW + 2, 42);
 
-    // Conditions
+    // Conditions — icon + text
+    WeatherIcon::draw(12, 117, s_w.code, Theme::SKY);
     Display::useFont("PixelifySans-14");
     tft.setTextColor(Theme::INK_DIM, Theme::BG);
-    tft.drawString(Weather::describe(s_w.code), 12, 118);
+    tft.drawString(Weather::describe(s_w.code), 32, 118);
 
     // Right stack — feels/hum/wind
     Display::useFont("DMMono-11");
@@ -164,11 +166,12 @@ void chWeatherTick(const ChannelCtx& ctx) {
     }
 
     if (codeDirty) {
-        tft.fillRect(10, 116, 160, 16, Theme::BG);
+        tft.fillRect(10, 116, 160, 18, Theme::BG);
+        WeatherIcon::draw(12, 117, s_w.code, Theme::SKY);
         Display::useFont("PixelifySans-14");
         tft.setTextDatum(TL_DATUM);
         tft.setTextColor(Theme::INK_DIM, Theme::BG);
-        tft.drawString(Weather::describe(s_w.code), 12, 118);
+        tft.drawString(Weather::describe(s_w.code), 32, 118);
         s_tickCode = s_w.code;
     }
 

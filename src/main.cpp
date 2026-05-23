@@ -71,6 +71,23 @@ static uint32_t    g_lastRefresh = 0;
 static uint32_t    g_lastSlide   = 0;
 static uint32_t    g_lastTick    = 0;
 
+// ── Accessors for web.cpp / ch_info.cpp ─────────────────────────────────────
+
+const char* mainActiveChannelName() {
+    if (g_activeCount == 0) return "none";
+    return kChannels[g_activeIdx[g_activePtr]].name;
+}
+int  mainEnabledCount()    { return g_activeCount; }
+int  mainTotalCount()      { return kChannelCount; }
+uint32_t mainLastRefreshMs() { return g_lastRefresh; }
+uint32_t mainRefreshIntervalMs() { return (uint32_t)g_settings.refreshMin * 60000UL; }
+void mainTriggerRefresh()  { g_lastRefresh = 0; }
+const char* mainEnabledChannelName(int idx) {
+    if (idx < 0 || idx >= g_activeCount) return nullptr;
+    return kChannels[g_activeIdx[idx]].name;
+}
+const ClaudeData* mainClaudeData() { return &g_claude; }
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 static ChannelCtx makeCtx() {

@@ -16,6 +16,7 @@ struct ClaudeData {
     ModelSlot models[3];               // top model breakdowns
     bool      valid = false;
     char      err[24] = "";
+    char      rawKeys[128] = "";           // debug: comma-separated API keys with utilization
 };
 
 struct CodexData {
@@ -26,6 +27,8 @@ struct CodexData {
     float  creditsRemain  = -1.0f;
     bool   valid = false;
     char   err[24] = "";
+    uint8_t hourlyPct[24] = {};
+    bool    hourlyValid[24] = {};
 };
 
 namespace Api {
