@@ -30,7 +30,6 @@ namespace Display {
 
     // Primitives reused by channels
     void clear();
-    void centeredText(const char* s, int y, uint16_t color, uint8_t font);
     uint16_t usageColor(float pct);
 
     // ── Typography (VLW bitmap fonts from LittleFS) ──

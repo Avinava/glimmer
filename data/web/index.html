@@ -75,13 +75,15 @@
       <label>Subtitle (optional)</label>
       <input x-model="pushForm.subtitle" placeholder="main / 4 min ago">
       <label>Color</label>
-      <select x-model="pushForm.color">
-        <option value="coral">coral</option>
-        <option value="amber">amber</option>
-        <option value="mint">mint (success)</option>
-        <option value="sky">sky</option>
-        <option value="lilac">lilac</option>
-      </select>
+      <div class="color-pick">
+        <template x-for="c in [{v:'coral',l:'coral'},{v:'amber',l:'amber'},{v:'mint',l:'mint'},{v:'sky',l:'sky'},{v:'lilac',l:'lilac'}]">
+          <button type="button" class="swatch"
+            x-bind:class="{active: pushForm.color === c.v}"
+            x-bind:style="'--sw: var(--' + c.v + ')'"
+            x-on:click="pushForm.color = c.v"
+            x-text="c.l"></button>
+        </template>
+      </div>
       <label>Duration (seconds)</label>
       <input type="number" x-model.number="pushForm.duration_s" min="5" max="300">
       <button x-on:click="sendPush()" class="primary">Send</button>
@@ -128,7 +130,7 @@
       <label class="row"><input type="checkbox" x-model="settings.showHome">Home dashboard</label>
       <label class="row"><input type="checkbox" x-model="settings.showClock">Clock</label>
       <label class="row"><input type="checkbox" x-model="settings.showWeather">Weather now</label>
-      <label class="row"><input type="checkbox" x-model="settings.showForecast">5-day forecast</label>
+      <label class="row"><input type="checkbox" x-model="settings.showForecast">3-day forecast</label>
       <label class="row"><input type="checkbox" x-model="settings.showClaude">Claude usage</label>
       <label class="row"><input type="checkbox" x-model="settings.showCodex">Codex usage</label>
       <label class="row"><input type="checkbox" x-model="settings.showAiDash">AI dashboard</label>

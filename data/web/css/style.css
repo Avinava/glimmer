@@ -269,3 +269,24 @@ button.danger {
   font-weight: 600;
 }
 .toast.error { background: var(--coral); color: #150A08; }
+
+.color-pick { display: flex; gap: 6px; flex-wrap: wrap; }
+.swatch {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 2px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink-dim);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.swatch::before {
+  content: '';
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--sw);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.swatch.active { border-color: var(--sw); color: var(--ink); }

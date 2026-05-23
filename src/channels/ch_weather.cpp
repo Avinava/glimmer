@@ -111,7 +111,7 @@ void chWeatherDraw(const ChannelCtx& ctx) {
         tft.drawString(line, SCREEN_W - 12, ry); ry += 18;
     }
     if (s_w.windKmh >= 0) {
-        snprintf(line, sizeof(line), "wind %.0fk", s_w.windKmh);
+        snprintf(line, sizeof(line), "wind %.0fkm", s_w.windKmh);
         tft.drawString(line, SCREEN_W - 12, ry);
     }
 
@@ -189,7 +189,7 @@ void chWeatherTick(const ChannelCtx& ctx) {
             tft.drawString(line, SCREEN_W - 12, ry); ry += 18;
         }
         if (s_w.windKmh >= 0) {
-            snprintf(line, sizeof(line), "wind %.0fk", s_w.windKmh);
+            snprintf(line, sizeof(line), "wind %.0fkm", s_w.windKmh);
             tft.drawString(line, SCREEN_W - 12, ry);
         }
         s_tickFeels = s_w.feelsC;

@@ -139,12 +139,6 @@ void Display::clear() {
     tft.fillScreen(Theme::BG);
 }
 
-void Display::centeredText(const char* s, int y, uint16_t color, uint8_t font) {
-    tft.setTextDatum(MC_DATUM);
-    tft.setTextColor(color, Theme::BG);
-    tft.drawString(s, SCREEN_W / 2, y, font);
-}
-
 uint16_t Display::usageColor(float pct) {
     if (pct < 0)       return Theme::MUTED;
     if (pct <= 20.0f)  return Theme::CORAL;
