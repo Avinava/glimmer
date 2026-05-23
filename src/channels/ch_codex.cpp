@@ -79,7 +79,7 @@ static void paintSecondary(float pct) {
         char wp[6]; snprintf(wp, sizeof(wp), "%d%%", (int)pct);
         Display::useFont("VT323-32");
         tft.setTextDatum(TR_DATUM);
-        tft.setTextColor(uc, Theme::BG);
+        tft.setTextColor(Theme::INK_DIM, Theme::BG);
         tft.drawString(wp, SCREEN_W - 12, 152);
     }
     String wk = (pct < 0) ? String("--") : (String((int)pct) + "%");

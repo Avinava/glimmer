@@ -67,7 +67,7 @@ static void paintWeeklyHero(float pct) {
         char wp[6]; snprintf(wp, sizeof(wp), "%d%%", (int)pct);
         Display::useFont("VT323-44");
         tft.setTextDatum(TR_DATUM);
-        tft.setTextColor(uc, Theme::BG);
+        tft.setTextColor(Theme::INK_DIM, Theme::BG);
         tft.drawString(wp, SCREEN_W - 12, 150);
     }
     Display::pixelBar(12, 196, SCREEN_W - 24, 6,

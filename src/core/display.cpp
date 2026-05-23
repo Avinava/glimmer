@@ -146,10 +146,10 @@ void Display::centeredText(const char* s, int y, uint16_t color, uint8_t font) {
 }
 
 uint16_t Display::usageColor(float pct) {
-    if (pct < 0)      return Theme::MUTED;
-    if (pct < 50.0f)  return Theme::MINT;
-    if (pct < 80.0f)  return Theme::AMBER;
-    return Theme::CORAL;
+    if (pct < 0)       return Theme::MUTED;
+    if (pct <= 20.0f)  return Theme::CORAL;
+    if (pct <= 50.0f)  return Theme::AMBER;
+    return Theme::MINT;
 }
 
 // ── Boot/splash scenes (partial-redraw — chrome painted once per session) ───
