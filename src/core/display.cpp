@@ -146,20 +146,10 @@ void Display::centeredText(const char* s, int y, uint16_t color, uint8_t font) {
 }
 
 uint16_t Display::usageColor(float pct) {
-    if (pct < 0)         return Theme::DIM;
-    if (pct <= 20.0f)    return Theme::RED;
-    if (pct <= 50.0f)    return Theme::AMBER;
-    return Theme::GREEN;
-}
-
-void Display::gradientBar(int x, int y, int w, int h, float pct, uint16_t goodColor) {
-    if (pct < 0) pct = 0;
-    if (pct > 100) pct = 100;
-    int filled = (int)(w * pct / 100.0f);
-    uint16_t col = (pct <= 20) ? Theme::RED : (pct <= 50) ? Theme::AMBER : (goodColor ? goodColor : Theme::GREEN);
-
-    tft.fillRoundRect(x, y, w, h, 3, Theme::BARTRK);
-    if (filled > 0) tft.fillRoundRect(x, y, filled, h, 3, col);
+    if (pct < 0)      return Theme::MUTED;
+    if (pct < 50.0f)  return Theme::MINT;
+    if (pct < 80.0f)  return Theme::AMBER;
+    return Theme::CORAL;
 }
 
 // ── Boot/splash scenes (partial-redraw — chrome painted once per session) ───

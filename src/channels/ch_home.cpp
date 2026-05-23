@@ -121,18 +121,18 @@ static void paintWeatherCondition(const WeatherData* w) {
 }
 
 static void paintMeter(int y, const char* tag, uint16_t tagColor,
-                       float pct, const char* val) {
+                       float pct, uint16_t barColor, const char* val) {
     tft.fillRect(0, y, SCREEN_W, 16, Theme::BG);
     Display::useFont("Silkscreen-12");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(tagColor, Theme::BG);
     tft.drawString(tag, 10, y);
 
-    Display::pixelBar(40, y + 3, 150, 7, pct, tagColor);
+    Display::pixelBar(40, y + 3, 150, 7, pct, barColor);
 
     Display::useFont("DMMono-11");
     tft.setTextDatum(TR_DATUM);
-    tft.setTextColor(Theme::INK, Theme::BG);
+    tft.setTextColor(barColor, Theme::BG);
     tft.drawString(val, SCREEN_W - 10, y);
 }
 
@@ -140,14 +140,16 @@ static void paintCL(float cl) {
     char buf[8];
     if (cl >= 0) snprintf(buf, sizeof(buf), "%.0f%%", cl);
     else         snprintf(buf, sizeof(buf), "--");
-    paintMeter(114, "CL", Theme::CORAL, cl < 0 ? 0 : cl, buf);
+    paintMeter(114, "CL", Theme::CORAL, cl < 0 ? 0 : cl,
+               Display::usageColor(cl), buf);
 }
 
 static void paintCX(float cx) {
     char buf[8];
     if (cx >= 0) snprintf(buf, sizeof(buf), "%.0f%%", cx);
     else         snprintf(buf, sizeof(buf), "--");
-    paintMeter(132, "CX", Theme::LILAC, cx < 0 ? 0 : cx, buf);
+    paintMeter(132, "CX", Theme::LILAC, cx < 0 ? 0 : cx,
+               Display::usageColor(cx), buf);
 }
 
 static void paintHourStrip(int curHour) {

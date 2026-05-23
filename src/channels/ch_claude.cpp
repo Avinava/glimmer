@@ -43,33 +43,35 @@ static void paintSessHero(float pct) {
     // Clear hero band + suffix area
     tft.fillRect(10, 46, SCREEN_W - 20, 76, Theme::BG);
 
+    uint16_t uc = Display::usageColor(pct);
     Display::useFont("VT323-86");
     tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::INK, Theme::BG);
+    tft.setTextColor(uc, Theme::BG);
     tft.drawString(pctBuf, 12, 46);
     int heroW = tft.textWidth(pctBuf);
     int heroH = tft.fontHeight();
 
     Display::useFont("VT323-44");
-    tft.setTextColor(Theme::CORAL, Theme::BG);
+    tft.setTextColor(uc, Theme::BG);
     int pctY = 46 + (heroH - tft.fontHeight()) - 4;
     tft.drawString("%", 12 + heroW + 2, pctY);
 
     Display::pixelBar(12, 128, SCREEN_W - 24, 8,
-                     pct < 0 ? 0 : pct, Theme::CORAL);
+                     pct < 0 ? 0 : pct, uc);
 }
 
 static void paintWeeklyHero(float pct) {
+    uint16_t uc = Display::usageColor(pct);
     tft.fillRect(SCREEN_W - 90, 148, 80, 36, Theme::BG);
     if (pct >= 0) {
         char wp[6]; snprintf(wp, sizeof(wp), "%d%%", (int)pct);
         Display::useFont("VT323-44");
         tft.setTextDatum(TR_DATUM);
-        tft.setTextColor(Theme::MINT, Theme::BG);
+        tft.setTextColor(uc, Theme::BG);
         tft.drawString(wp, SCREEN_W - 12, 150);
     }
     Display::pixelBar(12, 196, SCREEN_W - 24, 6,
-                     pct < 0 ? 0 : pct, Theme::MINT);
+                     pct < 0 ? 0 : pct, uc);
 }
 
 static void paintWeeklySub(float pct, time_t weekReset) {

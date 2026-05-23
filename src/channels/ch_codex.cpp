@@ -55,29 +55,31 @@ static void paintPrimaryHero(float pct) {
     else         snprintf(pctBuf, sizeof(pctBuf), "%.0f", pct);
     tft.fillRect(10, 46, SCREEN_W - 110, 76, Theme::BG);
 
+    uint16_t uc = Display::usageColor(pct);
     Display::useFont("VT323-86");
     tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::INK, Theme::BG);
+    tft.setTextColor(uc, Theme::BG);
     tft.drawString(pctBuf, 12, 46);
     int heroW = tft.textWidth(pctBuf);
     int heroH = tft.fontHeight();
 
     Display::useFont("VT323-32");
-    tft.setTextColor(Theme::LILAC, Theme::BG);
+    tft.setTextColor(uc, Theme::BG);
     int pctY = 46 + (heroH - tft.fontHeight()) - 2;
     tft.drawString("%", 12 + heroW + 2, pctY);
 
     Display::pixelBar(12, 128, SCREEN_W - 24, 8,
-                     pct < 0 ? 0 : pct, Theme::LILAC);
+                     pct < 0 ? 0 : pct, uc);
 }
 
 static void paintSecondary(float pct) {
+    uint16_t uc = Display::usageColor(pct);
     tft.fillRect(0, 150, SCREEN_W, 38, Theme::BG);
     if (pct >= 0) {
         char wp[6]; snprintf(wp, sizeof(wp), "%d%%", (int)pct);
         Display::useFont("VT323-32");
         tft.setTextDatum(TR_DATUM);
-        tft.setTextColor(Theme::SKY, Theme::BG);
+        tft.setTextColor(uc, Theme::BG);
         tft.drawString(wp, SCREEN_W - 12, 152);
     }
     String wk = (pct < 0) ? String("--") : (String((int)pct) + "%");
@@ -87,7 +89,7 @@ static void paintSecondary(float pct) {
     tft.drawString(wk, 12, 172);
 
     Display::pixelBar(12, 190, SCREEN_W - 24, 6,
-                     pct < 0 ? 0 : pct, Theme::SKY);
+                     pct < 0 ? 0 : pct, uc);
 }
 
 void chCodexDraw(const ChannelCtx& ctx) {

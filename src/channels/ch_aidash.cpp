@@ -23,29 +23,29 @@ bool chAiDashEnabled(const ChannelCtx& ctx) {
 }
 
 static void paintCLBlock(float cl) {
-    // Hero %
+    uint16_t uc = Display::usageColor(cl);
     tft.fillRect(10, 48, 100, 28, Theme::BG);
     char buf[8];
     if (cl < 0) snprintf(buf, sizeof(buf), "--%%");
     else        snprintf(buf, sizeof(buf), "%.0f%%", cl);
     Display::useFont("VT323-32");
     tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::INK, Theme::BG);
+    tft.setTextColor(uc, Theme::BG);
     tft.drawString(buf, 12, 50);
-    // Bar
-    Display::pixelBar(12, 92, SCREEN_W - 24, 10, cl < 0 ? 0 : cl, Theme::CORAL);
+    Display::pixelBar(12, 92, SCREEN_W - 24, 10, cl < 0 ? 0 : cl, uc);
 }
 
 static void paintCXBlock(float cx) {
+    uint16_t uc = Display::usageColor(cx);
     tft.fillRect(SCREEN_W - 110, 48, 100, 28, Theme::BG);
     char buf[8];
     if (cx < 0) snprintf(buf, sizeof(buf), "--%%");
     else        snprintf(buf, sizeof(buf), "%.0f%%", cx);
     Display::useFont("VT323-32");
     tft.setTextDatum(TR_DATUM);
-    tft.setTextColor(Theme::INK, Theme::BG);
+    tft.setTextColor(uc, Theme::BG);
     tft.drawString(buf, SCREEN_W - 12, 50);
-    Display::pixelBar(12, 110, SCREEN_W - 24, 10, cx < 0 ? 0 : cx, Theme::LILAC);
+    Display::pixelBar(12, 110, SCREEN_W - 24, 10, cx < 0 ? 0 : cx, uc);
 }
 
 void chAiDashDraw(const ChannelCtx& ctx) {
