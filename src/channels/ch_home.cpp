@@ -113,13 +113,13 @@ static void paintWeatherFeels(const WeatherData* w, bool f) {
 }
 
 static void paintWeatherCondition(const WeatherData* w) {
-    tft.fillRect(SCREEN_W - 86, 62, 80, 16, Theme::BG);
+    tft.fillRect(SCREEN_W - 86, 62, 86, 34, Theme::BG);
     if (w && w->valid) {
-        WeatherIcon::draw(SCREEN_W - 86, 62, w->code, Theme::SKY);
+        WeatherIcon::draw(SCREEN_W - 36, 62, w->code, Theme::SKY, 2);
         Display::useFont("DMMono-11");
-        tft.setTextDatum(TL_DATUM);
+        tft.setTextDatum(TR_DATUM);
         tft.setTextColor(Theme::INK_DIM, Theme::BG);
-        tft.drawString(Weather::describe(w->code), SCREEN_W - 68, 64);
+        tft.drawString(Weather::describe(w->code), SCREEN_W - 40, 78);
     } else {
         Display::useFont("DMMono-11");
         tft.setTextDatum(TR_DATUM);

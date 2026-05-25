@@ -99,6 +99,13 @@ static bool tlsGet(const String& url, const std::function<void(HTTPClient&)>& ad
     return false;
 }
 
+// ── Transient failure suppression ────────────────────────────────────────────
+// Swallow the first few TLS failures silently (keep stale data on screen).
+// After this many consecutive failures, escalate to on-screen error.
+static constexpr int kMaxSilentFails = 3;
+static int s_claudeFails = 0;
+static int s_codexFails  = 0;
+
 // ── Claude fetch ─────────────────────────────────────────────────────────────
 
 static String s_cachedOrgId;
@@ -136,11 +143,19 @@ static bool fetchClaudeOrg(const String& key, String& orgId, char errBuf[]) {
 
 bool Api::fetchClaude(const Settings& s, ClaudeData& out) {
     if (s.claudeKey.isEmpty()) { snprintf(out.err, sizeof(out.err), "no key"); return false; }
-    out.err[0] = '\0';
 
     String orgId;
+    char orgErr[24] = "";
     bool wasCached = (s_cachedOrgId.length() && s_cachedOrgKey == s.claudeKey);
-    if (!fetchClaudeOrg(s.claudeKey, orgId, out.err)) return false;
+    if (!fetchClaudeOrg(s.claudeKey, orgId, orgErr)) {
+        s_claudeFails++;
+        if (out.valid && s_claudeFails < kMaxSilentFails) {
+            Serial.printf("[claude] org fetch failed (%s), attempt %d/%d — keeping stale data\n", orgErr, s_claudeFails, kMaxSilentFails);
+            return false;
+        }
+        strncpy(out.err, orgErr, sizeof(out.err) - 1);
+        return false;
+    }
     if (!wasCached) { yield(); delay(150); }
 
     String body; int code;
@@ -153,9 +168,18 @@ bool Api::fetchClaude(const Settings& s, ClaudeData& out) {
         h.addHeader("Origin",     "https://claude.ai");
     };
     if (!tlsGet(url, addH, body, code)) {
+        if (code < 0) {
+            s_claudeFails++;
+            if (out.valid && s_claudeFails < kMaxSilentFails) {
+                Serial.printf("[claude] transient TLS failure (%d), attempt %d/%d — keeping stale data\n", code, s_claudeFails, kMaxSilentFails);
+                return false;
+            }
+        }
         snprintf(out.err, sizeof(out.err), "HTTP %d", code);
         return false;
     }
+    out.err[0] = '\0';
+    s_claudeFails = 0;
     JsonDocument doc;
     if (deserializeJson(doc, body)) { snprintf(out.err, sizeof(out.err), "parse"); return false; }
     body = String();
@@ -219,7 +243,6 @@ bool Api::fetchClaude(const Settings& s, ClaudeData& out) {
 
 bool Api::fetchCodex(const Settings& s, CodexData& out) {
     if (s.codexToken.isEmpty()) { out.valid = false; return true; }   // not configured ≠ error
-    out.err[0] = '\0';
 
     String body; int code;
     String authVal = "Bearer " + s.codexToken;
@@ -232,10 +255,19 @@ bool Api::fetchCodex(const Settings& s, CodexData& out) {
         if (!s.codexDeviceId.isEmpty()) h.addHeader("oai-device-id", s.codexDeviceId);
     };
     if (!tlsGet("https://chatgpt.com/backend-api/wham/usage", addH, body, code)) {
+        if (code < 0) {
+            s_codexFails++;
+            if (out.valid && s_codexFails < kMaxSilentFails) {
+                Serial.printf("[codex] transient TLS failure (%d), attempt %d/%d — keeping stale data\n", code, s_codexFails, kMaxSilentFails);
+                return false;
+            }
+        }
         snprintf(out.err, sizeof(out.err), "HTTP %d", code);
         out.valid = false;
         return false;
     }
+    out.err[0] = '\0';
+    s_codexFails = 0;
 
     JsonDocument doc;
     if (deserializeJson(doc, body)) { snprintf(out.err, sizeof(out.err), "parse"); out.valid=false; return false; }

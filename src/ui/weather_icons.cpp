@@ -211,14 +211,18 @@ static const uint16_t* iconFor(uint8_t wmoCode) {
     return ICON_CLOUD;
 }
 
-void WeatherIcon::draw(int x, int y, uint8_t wmoCode, uint16_t color) {
+void WeatherIcon::draw(int x, int y, uint8_t wmoCode, uint16_t color, int scale) {
     const uint16_t* rows = iconFor(wmoCode);
     for (int row = 0; row < 16; row++) {
         uint16_t bits = rows[row];
         if (!bits) continue;
         for (int col = 0; col < 16; col++) {
-            if (bits & (1 << (15 - col)))
-                tft.drawPixel(x + col, y + row, color);
+            if (bits & (1 << (15 - col))) {
+                if (scale <= 1)
+                    tft.drawPixel(x + col, y + row, color);
+                else
+                    tft.fillRect(x + col * scale, y + row * scale, scale, scale, color);
+            }
         }
     }
 }
