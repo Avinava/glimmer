@@ -2,7 +2,7 @@
 //
 // Fonts (regenerated via tools/genfonts.py at exact em-px sizes):
 //   - "5-HOUR WINDOW" / "WEEKLY" / labels / sub-data : DMMono-11   (~13 px)
-//   - countdowns "3h 2m"                              : Silkscreen-12 (~15 px)
+//   - countdowns "3h 2m"                              : VT323-32    (~26 px)
 //   - hero "%" digits                                 : VT323-86   (~70 px)
 //   - inline "%" suffix on hero                       : VT323-44   (~36 px)
 //   - weekly hero "%"                                 : VT323-44   (~36 px)
@@ -30,11 +30,11 @@ bool chClaudeEnabled(const ChannelCtx& ctx) {
 
 static void paintSessReset(time_t resetEpoch) {
     String s = (resetEpoch > 0) ? Api::formatCountdown(resetEpoch) : String("--");
-    tft.fillRect(SCREEN_W - 100, 28, 90, 16, Theme::BG);
-    Display::useFont("Silkscreen-12");
+    tft.fillRect(SCREEN_W - 110, 26, 100, 28, Theme::BG);
+    Display::useFont("VT323-32");
     tft.setTextDatum(TR_DATUM);
     tft.setTextColor(Theme::CORAL, Theme::BG);
-    tft.drawString(s, SCREEN_W - 12, 30);
+    tft.drawString(s, SCREEN_W - 12, 26);
     strncpy(s_heroReset, s.c_str(), sizeof(s_heroReset) - 1);
 }
 
@@ -58,15 +58,20 @@ static void paintSessHero(float pct) {
     int pctY = 46 + (heroH - tft.fontHeight()) - 4;
     tft.drawString("%", 12 + heroW + 2, pctY);
 
+    Display::useFont("DMMono-11");
+    tft.setTextDatum(TR_DATUM);
+    tft.setTextColor(Theme::CORAL, Theme::BG);
+    tft.drawString("CLAUDE", SCREEN_W - 12, 76);
+
     Display::pixelBar(12, 128, SCREEN_W - 24, 8,
-                     pct < 0 ? 0 : pct, uc);
+                     pct < 0 ? 0 : pct, Theme::CORAL);
 }
 
 static void paintWeeklyCompact(const char* label, float pct, time_t weekReset) {
     tft.fillRect(0, 150, SCREEN_W, 20, Theme::BG);
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::MUTED, Theme::BG);
+    tft.setTextColor(Theme::CORAL, Theme::BG);
     tft.drawString(label, 12, 150);
 
     String s;
@@ -80,8 +85,7 @@ static void paintWeeklyCompact(const char* label, float pct, time_t weekReset) {
     tft.drawString(s, SCREEN_W - 12, 150);
     strncpy(s_secSub, s.c_str(), sizeof(s_secSub) - 1);
 
-    uint16_t uc = Display::usageColor(pct);
-    Display::pixelBar(12, 164, SCREEN_W - 24, 4, pct < 0 ? 0 : pct, uc);
+    Display::pixelBar(12, 164, SCREEN_W - 24, 4, pct < 0 ? 0 : pct, Theme::CORAL);
 }
 
 static void paintModelRows(const ClaudeData& d) {
@@ -144,11 +148,8 @@ void chClaudeDraw(const ChannelCtx& ctx) {
 
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::MUTED, Theme::BG);
+    tft.setTextColor(Theme::CORAL, Theme::BG);
     tft.drawString(swapped ? "WEEKLY" : "5-HOUR WINDOW", 12, 30);
-
-    tft.setTextDatum(TR_DATUM);
-    tft.drawString("until reset", SCREEN_W - 12, 48);
 
     paintSessReset(heroRst);
     paintSessHero(heroPct);

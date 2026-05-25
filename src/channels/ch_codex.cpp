@@ -14,6 +14,7 @@ static float s_heroPct = -2.f;
 static float s_secPct  = -2.f;
 static float s_credits = -2.f;
 static char  s_rightLine[16] = "";
+static char  s_secSub[24] = "";
 static int   s_sparkHour = -1;
 
 bool chCodexEnabled(const ChannelCtx& ctx) {
@@ -21,26 +22,20 @@ bool chCodexEnabled(const ChannelCtx& ctx) {
 }
 
 static void paintRightStack(const CodexData& d, time_t heroReset) {
-    tft.fillRect(SCREEN_W - 100, 28, 90, 38, Theme::BG);
+    tft.fillRect(SCREEN_W - 110, 26, 100, 28, Theme::BG);
     if (d.creditsRemain >= 0) {
         char credits[16]; snprintf(credits, sizeof(credits), "$%.2f", d.creditsRemain);
-        Display::useFont("Silkscreen-12");
+        Display::useFont("VT323-32");
         tft.setTextDatum(TR_DATUM);
         tft.setTextColor(Theme::SKY, Theme::BG);
-        tft.drawString(credits, SCREEN_W - 12, 32);
-        Display::useFont("DMMono-11");
-        tft.setTextColor(Theme::MUTED, Theme::BG);
-        tft.drawString("credits", SCREEN_W - 12, 50);
+        tft.drawString(credits, SCREEN_W - 12, 26);
         strncpy(s_rightLine, credits, sizeof(s_rightLine) - 1);
     } else if (heroReset > 0) {
         String r = Api::formatCountdown(heroReset);
-        Display::useFont("Silkscreen-12");
+        Display::useFont("VT323-32");
         tft.setTextDatum(TR_DATUM);
         tft.setTextColor(Theme::LILAC, Theme::BG);
-        tft.drawString(r, SCREEN_W - 12, 32);
-        Display::useFont("DMMono-11");
-        tft.setTextColor(Theme::MUTED, Theme::BG);
-        tft.drawString("until reset", SCREEN_W - 12, 50);
+        tft.drawString(r, SCREEN_W - 12, 26);
         strncpy(s_rightLine, r.c_str(), sizeof(s_rightLine) - 1);
     } else {
         s_rightLine[0] = 0;
@@ -66,12 +61,16 @@ static void paintPrimaryHero(float pct) {
     int pctY = 46 + (heroH - tft.fontHeight()) - 2;
     tft.drawString("%", 12 + heroW + 2, pctY);
 
+    Display::useFont("DMMono-11");
+    tft.setTextDatum(TR_DATUM);
+    tft.setTextColor(Theme::LILAC, Theme::BG);
+    tft.drawString("CODEX", SCREEN_W - 12, 76);
+
     Display::pixelBar(12, 128, SCREEN_W - 24, 8,
-                     pct < 0 ? 0 : pct, uc);
+                     pct < 0 ? 0 : pct, Theme::LILAC);
 }
 
-static void paintSecondary(float pct) {
-    uint16_t uc = Display::usageColor(pct);
+static void paintSecondary(float pct, time_t secReset) {
     tft.fillRect(0, 150, SCREEN_W, 38, Theme::BG);
     if (pct >= 0) {
         char wp[6]; snprintf(wp, sizeof(wp), "%d%%", (int)pct);
@@ -80,14 +79,20 @@ static void paintSecondary(float pct) {
         tft.setTextColor(Theme::INK_DIM, Theme::BG);
         tft.drawString(wp, SCREEN_W - 12, 152);
     }
-    String wk = (pct < 0) ? String("--") : (String((int)pct) + "%");
+    String wk;
+    if (pct < 0) wk = "--";
+    else {
+        wk = String((int)pct) + "%";
+        if (secReset > 0) wk += " \xC2\xB7 " + Api::formatCountdown(secReset);
+    }
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::INK_DIM, Theme::BG);
     tft.drawString(wk, 12, 172);
+    strncpy(s_secSub, wk.c_str(), sizeof(s_secSub) - 1);
 
     Display::pixelBar(12, 190, SCREEN_W - 24, 6,
-                     pct < 0 ? 0 : pct, uc);
+                     pct < 0 ? 0 : pct, Theme::LILAC);
 }
 
 static void paintSparkBar(const CodexData& d, int curHour) {
@@ -145,10 +150,11 @@ void chCodexDraw(const ChannelCtx& ctx) {
     const float heroPct  = swapped ? d.secondaryPct   : d.primaryPct;
     const float secPct   = swapped ? d.primaryPct     : d.secondaryPct;
     const time_t heroRst = swapped ? d.secondaryReset : d.primaryReset;
+    const time_t secRst  = swapped ? d.primaryReset   : d.secondaryReset;
 
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::MUTED, Theme::BG);
+    tft.setTextColor(Theme::LILAC, Theme::BG);
     tft.drawString(swapped ? "WEEKLY" : "PRIMARY", 12, 32);
 
     paintRightStack(d, heroRst);
@@ -158,10 +164,10 @@ void chCodexDraw(const ChannelCtx& ctx) {
 
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::MUTED, Theme::BG);
+    tft.setTextColor(Theme::LILAC, Theme::BG);
     tft.drawString(swapped ? "PRIMARY" : "WEEKLY", 12, 156);
 
-    paintSecondary(secPct);
+    paintSecondary(secPct, secRst);
 
     time_t t = time(nullptr);
     struct tm tm; localtime_r(&t, &tm);
@@ -182,6 +188,7 @@ void chCodexTick(const ChannelCtx& ctx) {
     const float heroPct  = swapped ? d.secondaryPct   : d.primaryPct;
     const float secPct   = swapped ? d.primaryPct     : d.secondaryPct;
     const time_t heroRst = swapped ? d.secondaryReset : d.primaryReset;
+    const time_t secRst  = swapped ? d.primaryReset   : d.secondaryReset;
 
     // Right stack — repaint when credits change OR countdown text changes
     bool rightDirty = false;
@@ -199,9 +206,17 @@ void chCodexTick(const ChannelCtx& ctx) {
         s_heroPct = p;
     }
 
+    // Secondary — repaint on pct change or countdown text change
     float sp = (secPct < 0) ? -2.f : secPct;
-    if (fabsf(sp - s_secPct) > 0.4f) {
-        paintSecondary(secPct);
+    bool secDirty = fabsf(sp - s_secPct) > 0.4f;
+    if (!secDirty && secRst > 0) {
+        String fresh;
+        if (secPct < 0) fresh = "--";
+        else fresh = String((int)secPct) + "% \xC2\xB7 " + Api::formatCountdown(secRst);
+        if (strcmp(fresh.c_str(), s_secSub) != 0) secDirty = true;
+    }
+    if (secDirty) {
+        paintSecondary(secPct, secRst);
         s_secPct = sp;
     }
 
