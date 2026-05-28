@@ -56,9 +56,9 @@ static void paintPrimaryHero(float pct) {
     int heroW = tft.textWidth(pctBuf);
     int heroH = tft.fontHeight();
 
-    Display::useFont("VT323-32");
+    Display::useFont("VT323-44");
     tft.setTextColor(uc, Theme::BG);
-    int pctY = 46 + (heroH - tft.fontHeight()) - 2;
+    int pctY = 46 + (heroH - tft.fontHeight()) - 4;
     tft.drawString("%", 12 + heroW + 2, pctY);
 
     Display::useFont("DMMono-11");

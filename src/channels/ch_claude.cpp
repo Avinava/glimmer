@@ -150,7 +150,7 @@ void chClaudeDraw(const ChannelCtx& ctx) {
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::MUTED, Theme::BG);
-    tft.drawString(swapped ? "WEEKLY" : "5-HOUR WINDOW", 12, 30);
+    tft.drawString(swapped ? "WEEKLY" : "5-HOUR WINDOW", 12, 32);
 
     paintSessReset(heroRst);
     paintSessHero(heroPct);
