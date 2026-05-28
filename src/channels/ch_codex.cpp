@@ -67,7 +67,7 @@ static void paintPrimaryHero(float pct) {
     tft.drawString("CODEX", SCREEN_W - 12, 76);
 
     Display::pixelBar(12, 128, SCREEN_W - 24, 8,
-                     pct < 0 ? 0 : pct, Theme::LILAC);
+                     pct < 0 ? 0 : pct, uc);
 }
 
 static void paintSecondary(float pct, time_t secReset) {
@@ -91,8 +91,9 @@ static void paintSecondary(float pct, time_t secReset) {
     tft.drawString(wk, 12, 172);
     strncpy(s_secSub, wk.c_str(), sizeof(s_secSub) - 1);
 
+    uint16_t uc = Display::usageColor(pct);
     Display::pixelBar(12, 190, SCREEN_W - 24, 6,
-                     pct < 0 ? 0 : pct, Theme::LILAC);
+                     pct < 0 ? 0 : pct, uc);
 }
 
 static void paintSparkBar(const CodexData& d, int curHour) {
@@ -154,7 +155,7 @@ void chCodexDraw(const ChannelCtx& ctx) {
 
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::LILAC, Theme::BG);
+    tft.setTextColor(Theme::MUTED, Theme::BG);
     tft.drawString(swapped ? "WEEKLY" : "PRIMARY", 12, 32);
 
     paintRightStack(d, heroRst);
@@ -164,7 +165,7 @@ void chCodexDraw(const ChannelCtx& ctx) {
 
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::LILAC, Theme::BG);
+    tft.setTextColor(Theme::MUTED, Theme::BG);
     tft.drawString(swapped ? "PRIMARY" : "WEEKLY", 12, 156);
 
     paintSecondary(secPct, secRst);

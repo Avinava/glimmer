@@ -64,14 +64,14 @@ static void paintSessHero(float pct) {
     tft.drawString("CLAUDE", SCREEN_W - 12, 76);
 
     Display::pixelBar(12, 128, SCREEN_W - 24, 8,
-                     pct < 0 ? 0 : pct, Theme::CORAL);
+                     pct < 0 ? 0 : pct, uc);
 }
 
 static void paintWeeklyCompact(const char* label, float pct, time_t weekReset) {
     tft.fillRect(0, 150, SCREEN_W, 20, Theme::BG);
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::CORAL, Theme::BG);
+    tft.setTextColor(Theme::MUTED, Theme::BG);
     tft.drawString(label, 12, 150);
 
     String s;
@@ -85,7 +85,8 @@ static void paintWeeklyCompact(const char* label, float pct, time_t weekReset) {
     tft.drawString(s, SCREEN_W - 12, 150);
     strncpy(s_secSub, s.c_str(), sizeof(s_secSub) - 1);
 
-    Display::pixelBar(12, 164, SCREEN_W - 24, 4, pct < 0 ? 0 : pct, Theme::CORAL);
+    uint16_t uc = Display::usageColor(pct);
+    Display::pixelBar(12, 164, SCREEN_W - 24, 4, pct < 0 ? 0 : pct, uc);
 }
 
 static void paintModelRows(const ClaudeData& d) {
@@ -148,7 +149,7 @@ void chClaudeDraw(const ChannelCtx& ctx) {
 
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::CORAL, Theme::BG);
+    tft.setTextColor(Theme::MUTED, Theme::BG);
     tft.drawString(swapped ? "WEEKLY" : "5-HOUR WINDOW", 12, 30);
 
     paintSessReset(heroRst);
