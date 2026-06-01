@@ -61,50 +61,41 @@ static void paintPrimaryHero(float pct) {
     int pctY = 46 + (heroH - tft.fontHeight()) - 4;
     tft.drawString("%", 12 + heroW + 2, pctY);
 
-    Display::useFont("DMMono-11");
-    tft.setTextDatum(TR_DATUM);
-    tft.setTextColor(Theme::LILAC, Theme::BG);
-    tft.drawString("CODEX", SCREEN_W - 12, 76);
-
     Display::pixelBar(12, 128, SCREEN_W - 24, 8,
                      pct < 0 ? 0 : pct, uc);
 }
 
-static void paintSecondary(float pct, time_t secReset) {
-    tft.fillRect(0, 150, SCREEN_W, 38, Theme::BG);
-    if (pct >= 0) {
-        char wp[6]; snprintf(wp, sizeof(wp), "%d%%", (int)pct);
-        Display::useFont("VT323-32");
-        tft.setTextDatum(TR_DATUM);
-        tft.setTextColor(Theme::INK_DIM, Theme::BG);
-        tft.drawString(wp, SCREEN_W - 12, 152);
-    }
-    String wk;
-    if (pct < 0) wk = "--";
-    else {
-        wk = String((int)pct) + "%";
-        if (secReset > 0) wk += " \xC2\xB7 " + Api::formatCountdown(secReset);
-    }
-    Display::useFont("DMMono-11");
-    tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::INK_DIM, Theme::BG);
-    tft.drawString(wk, 12, 172);
-    strncpy(s_secSub, wk.c_str(), sizeof(s_secSub) - 1);
-
-    uint16_t uc = Display::usageColor(pct);
-    Display::pixelBar(12, 190, SCREEN_W - 24, 6,
-                     pct < 0 ? 0 : pct, uc);
-}
-
-static void paintSparkBar(const CodexData& d, int curHour) {
-    const int sx = 12, sy = 210, sw = SCREEN_W - 24, sh = 16;
-    const int barW = sw / 24;
-    tft.fillRect(sx, sy - 12, sw, sh + 12, Theme::BG);
+static void paintSecondary(float pct, time_t secReset, const char* label) {
+    tft.fillRect(0, 150, SCREEN_W, 20, Theme::BG);
 
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::MUTED, Theme::BG);
-    tft.drawString("24H", sx, sy - 12);
+    tft.drawString(label, 12, 150);
+
+    String right;
+    if (secReset > 0) right = Api::formatCountdown(secReset);
+    else if (pct >= 0) right = String((int)pct) + "%";
+    else               right = "--";
+    tft.setTextDatum(TR_DATUM);
+    tft.setTextColor(Theme::INK_DIM, Theme::BG);
+    tft.drawString(right, SCREEN_W - 12, 150);
+    strncpy(s_secSub, right.c_str(), sizeof(s_secSub) - 1);
+
+    uint16_t uc = Display::usageColor(pct);
+    Display::pixelBar(12, 164, SCREEN_W - 24, 4,
+                     pct < 0 ? 0 : pct, uc);
+}
+
+static void paintSparkBar(const CodexData& d, int curHour) {
+    const int sx = 12, sy = 188, sw = SCREEN_W - 24, sh = 31;
+    const int barW = sw / 24;
+    tft.fillRect(sx, 174, sw, 46, Theme::BG);
+
+    Display::useFont("DMMono-11");
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextColor(Theme::MUTED, Theme::BG);
+    tft.drawString("24H", sx, 174);
 
     for (int i = 0; i < 24; i++) {
         int bx = sx + i * barW;
@@ -153,7 +144,7 @@ void chCodexDraw(const ChannelCtx& ctx) {
     const time_t heroRst = swapped ? d.secondaryReset : d.primaryReset;
     const time_t secRst  = swapped ? d.primaryReset   : d.secondaryReset;
 
-    Display::useFont("DMMono-11");
+    Display::useFont("Silkscreen-12");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::MUTED, Theme::BG);
     tft.drawString(swapped ? "WEEKLY" : "PRIMARY", 12, 32);
@@ -163,12 +154,10 @@ void chCodexDraw(const ChannelCtx& ctx) {
 
     Display::dotsDivider(12, 146, SCREEN_W - 24);
 
-    Display::useFont("DMMono-11");
-    tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::MUTED, Theme::BG);
-    tft.drawString(swapped ? "PRIMARY" : "WEEKLY", 12, 156);
+    const char* secLabel = swapped ? "PRIMARY" : "WEEKLY";
+    paintSecondary(secPct, secRst, secLabel);
 
-    paintSecondary(secPct, secRst);
+    Display::dotsDivider(12, 170, SCREEN_W - 24);
 
     time_t t = time(nullptr);
     struct tm tm; localtime_r(&t, &tm);
@@ -211,13 +200,12 @@ void chCodexTick(const ChannelCtx& ctx) {
     float sp = (secPct < 0) ? -2.f : secPct;
     bool secDirty = fabsf(sp - s_secPct) > 0.4f;
     if (!secDirty && secRst > 0) {
-        String fresh;
-        if (secPct < 0) fresh = "--";
-        else fresh = String((int)secPct) + "% \xC2\xB7 " + Api::formatCountdown(secRst);
+        String fresh = Api::formatCountdown(secRst);
         if (strcmp(fresh.c_str(), s_secSub) != 0) secDirty = true;
     }
     if (secDirty) {
-        paintSecondary(secPct, secRst);
+        const char* secLabel = swapped ? "PRIMARY" : "WEEKLY";
+        paintSecondary(secPct, secRst, secLabel);
         s_secPct = sp;
     }
 

@@ -33,8 +33,8 @@ String Api::formatCountdown(time_t t) {
     if (diff <= 0) return "now";
     long h = diff / 3600;
     long m = (diff % 3600) / 60;
-    if (h >= 48) { char b[8]; snprintf(b, sizeof(b), "%ldd", h / 24);  return b; }
-    if (h >= 1)  { char b[10]; snprintf(b, sizeof(b), "%ldh %ldm", h, m); return b; }
+    if (h >= 24) { char b[8]; snprintf(b, sizeof(b), "%ldd", (h + 12) / 24); return b; }
+    if (h >= 1)  { char b[10]; snprintf(b, sizeof(b), "%ldh %ldm", h, m);   return b; }
     char b[8]; snprintf(b, sizeof(b), "%ldm", m); return b;
 }
 
