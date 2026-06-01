@@ -145,6 +145,48 @@ Or trigger via Claude Code:
 See `src/channels/ch_clock.cpp` for the reference partial-redraw
 implementation.
 
+## Getting your tokens
+
+glimmer reads your usage by replaying your own browser session against the
+same private endpoints claude.ai and chatgpt.com use for their dashboards.
+You extract each credential from your browser's DevTools, then **set it on
+the Tokens page in the device web UI** — open `http://glimmer.local/` (or
+`http://192.168.4.1/` while the device is in setup-AP mode) and go to
+**Settings → Tokens**.
+
+### Claude — `sessionKey` cookie
+
+**Get it:**
+
+1. Open DevTools on `claude.ai` → **Application → Cookies → `https://claude.ai`**
+2. Copy the value of the `sessionKey` cookie (starts with `sk-ant-sid02-…`)
+
+**Set it:** paste it on the Tokens page under **Claude → Session key**.
+
+### Codex — Bearer token + device ID
+
+The token must come from a **`backend-api`** request, *not* a CDN/asset
+request — CDN requests don't carry an `authorization` header.
+
+**Get it:**
+
+1. Open DevTools on `chatgpt.com` → **Network** tab
+2. Filter for `backend-api` and click any request (conversations, usage, etc.)
+3. From that request's headers, copy two values:
+   - `authorization: Bearer eyJhbGci…` → everything after `Bearer ` is your **token**
+   - `oai-device-id: …` → your **device ID**
+
+**Set them:** paste both on the Tokens page under **Codex → Bearer token**
+and **Device ID**.
+
+> **Shortcut:** right-click the `backend-api` request → **Copy → Copy as
+> cURL** and hand the whole curl to Claude Code — it pulls both values and
+> pushes them to the device for you (`POST /api/settings`).
+
+> **Note:** the Codex bearer token is short-lived (~24 h). When the Codex
+> channel shows a `401`, repeat these steps with a fresh request. The Claude
+> `sessionKey` lasts much longer but eventually needs the same refresh.
+
 ## Disclaimer — personal & educational use only
 
 glimmer is shared for **personal experimentation and educational
@@ -189,3 +231,9 @@ Disclaimer above.
   [DM Mono](https://fonts.google.com/specimen/DM+Mono),
   [Pixelify Sans](https://fonts.google.com/specimen/Pixelify+Sans)
   — typography (all OFL).
+
+---
+
+<p align="center">
+  <sub>Designed and built with <a href="https://claude.com/code">Claude Code</a>.</sub>
+</p>
