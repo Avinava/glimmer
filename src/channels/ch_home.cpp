@@ -59,7 +59,10 @@ static void clockGeom() {
 static void paintHH(int hh) {
     clockGeom();
     char b[4]; snprintf(b, sizeof(b), "%02d", hh);
-    tft.fillRect(s_hhX, 6, s_digitW * 2, 86, Theme::BG);
+    // Clear with a small margin (left + vertical) so anti-aliased glyph edges
+    // never leave stale pixels; stop exactly at the colon on the right.
+    int x0 = s_hhX - 4; if (x0 < 0) x0 = 0;
+    tft.fillRect(x0, 4, s_colonX - x0, 88, Theme::BG);
     Display::useFont("VT323-86");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::INK, Theme::BG);
@@ -77,7 +80,10 @@ static void paintColon() {
 static void paintMM(int mm) {
     clockGeom();
     char b[4]; snprintf(b, sizeof(b), "%02d", mm);
-    tft.fillRect(s_mmX, 6, s_digitW * 2, 86, Theme::BG);
+    // Clear with margin on both sides + vertical slack so glyph edges leave no
+    // stale pixels when a digit changes. The left margin stays right of the
+    // colon (s_mmX is colon-width past s_colonX), so the colon is untouched.
+    tft.fillRect(s_mmX - 4, 4, s_digitW * 2 + 8, 88, Theme::BG);
     Display::useFont("VT323-86");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::AMBER, Theme::BG);
