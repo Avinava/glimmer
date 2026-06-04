@@ -28,8 +28,15 @@ struct Settings {
     bool     autoRotate    = true;
     bool     claudeWeeklyHero = false;
     bool     codexWeeklyHero  = false;
-    // Display polarity for this panel — keep true for SmallTV-Ultra ST7789.
-    bool     invertDisplay = true;
+    // Display polarity for this panel — ST7789 (SmallTV-Ultra) needs true,
+    // ILI9341 (CYD/ESP32) needs false. Web UI exposes a runtime toggle.
+    bool     invertDisplay = true;   // ST7789 (Ultra) and this CYD ILI9341 both need INVON
+    // Global highlight/accent color for usage numbers + bars.
+    // "auto" = usage-based (green/amber/red); or "coral"/"amber"/"mint"/"sky"/"lilac".
+    String   highlightColor = "auto";
+    // Usage metric polarity: false = show REMAINING % (default, original behavior),
+    // true = show CONSUMED %. Affects Claude/Codex/Home/AI numbers, bars and colors.
+    bool     usageShowConsumed = false;
     bool     nightDim      = false;
     uint8_t  nightStart    = 22;
     uint8_t  nightEnd      = 7;

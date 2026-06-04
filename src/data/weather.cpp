@@ -1,7 +1,11 @@
 #include "weather.h"
-#include <ESP8266WiFi.h>
+#include "compat.h"
 #include <WiFiClient.h>
-#include <ESP8266HTTPClient.h>
+#if defined(ESP32)
+  #include <HTTPClient.h>
+#else
+  #include <ESP8266HTTPClient.h>
+#endif
 #include <ArduinoJson.h>
 
 // Open-Meteo is plain HTTP (and HTTPS); we use HTTP to save TLS memory.

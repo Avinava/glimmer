@@ -7,7 +7,7 @@
 #include "theme.h"
 #include "config.h"
 #include "layout.h"
-#include <ESP8266WiFi.h>
+#include "compat.h"
 
 extern int      mainEnabledCount();
 extern int      mainTotalCount();

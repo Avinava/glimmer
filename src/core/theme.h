@@ -27,4 +27,7 @@ namespace Theme {
     constexpr uint16_t LILAC    = 0xC43F;  // #C385FF  Codex
     // Theme color for a named channel — used by the channel indicator strip.
     uint16_t channelColor(const char* name);
+    // Resolve a palette color by name ("coral"/"amber"/"mint"/"sky"/"lilac").
+    // Returns 0 for "auto"/unknown (caller falls back to usage-based coloring).
+    uint16_t namedColor(const char* name);
 }

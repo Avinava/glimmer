@@ -121,8 +121,13 @@ void chClaudeDraw(const ChannelCtx& ctx) {
     const char* modelTag = "";
     if (d.valid && d.models[0].label[0]) {
         int best = 0;
+        const bool consumed = ctx.settings->usageShowConsumed;
         for (int i = 1; i < 3; i++) {
-            if (d.models[i].pct >= 0 && d.models[i].pct < d.models[best].pct) best = i;
+            if (d.models[i].pct < 0) continue;
+            // Surface the model closest to its limit: highest consumed / lowest remaining.
+            bool more = consumed ? (d.models[i].pct > d.models[best].pct)
+                                 : (d.models[i].pct < d.models[best].pct);
+            if (more) best = i;
         }
         modelTag = d.models[best].label;
     }

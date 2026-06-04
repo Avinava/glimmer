@@ -8,10 +8,9 @@
 // Adding a channel = drop one .cpp into src/channels/ + add a row to kChannels[].
 
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
-#include <ESP8266mDNS.h>
 #include <time.h>
 
+#include "compat.h"
 #include "config.h"
 #include "theme.h"
 #include "display.h"
@@ -150,10 +149,9 @@ static bool tryConnect() {
         WiFi.mode(WIFI_OFF);
         delay(150);
         WiFi.mode(WIFI_STA);
-        WiFi.setSleepMode(WIFI_NONE_SLEEP);
-        WiFi.setOutputPower(20.5);
+        compatWifiTune();
         WiFi.setAutoReconnect(true);
-        WiFi.hostname(MDNS_HOSTNAME);
+        compatWifiHostname(MDNS_HOSTNAME);
         delay(100);
 
         Serial.printf("[wifi] attempt %d/%d: connecting to '%s'\n",
@@ -224,6 +222,8 @@ void setup() {
     g_settings = Storage::load();
     Display::setBrightness(g_settings.brightness);
     Display::setInvert(g_settings.invertDisplay);
+    Display::setHighlight(Theme::namedColor(g_settings.highlightColor.c_str()));
+    Display::setUsageConsumed(g_settings.usageShowConsumed);
 
     Display::drawSplash("connecting WiFi");
     if (!tryConnect()) {
@@ -267,7 +267,7 @@ void setup() {
 
 void loop() {
     Web::loop();
-    if (!g_apMode) MDNS.update();
+    if (!g_apMode) compatMdnsUpdate();
 
     uint32_t now = millis();
 

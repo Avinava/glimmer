@@ -23,7 +23,7 @@
 #include "config.h"
 #include "weather.h"
 #include "weather_icons.h"
-#include <ESP8266WiFi.h>
+#include "compat.h"
 #include <time.h>
 #include <math.h>
 

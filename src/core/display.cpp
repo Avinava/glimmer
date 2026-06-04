@@ -109,16 +109,26 @@ static bool s_initialized = false;
 void Display::begin() {
     if (s_initialized) return;
     tft.init();
-    tft.setRotation(0);
-    // Display inversion — default true (matches this panel's color tuning).
-    // User can override via Settings.invertDisplay (applied in Display::setInvert()).
+#if defined(ESP32)
+    tft.setRotation(1);   // CYD landscape (320x240); flip to 3 if upside-down
+#else
+    tft.setRotation(0);   // SmallTV-Ultra portrait (240x240)
+#endif
+    // Display inversion. The SmallTV-Ultra ST7789 needs INVON; the CYD ILI9341
+    // renders correctly with inversion OFF. Either way Settings.invertDisplay
+    // can override at runtime (applied via Display::setInvert()).
     tft.invertDisplay(true);
     tft.fillScreen(Theme::BG);
 
     pinMode(TFT_BL, OUTPUT);
+#if defined(ESP32)
+    // ESP32 core: analogWrite() drives an LEDC channel (8-bit by default).
+    analogWrite(TFT_BL, BL_FULL);                  // active-high, full bright
+#else
     analogWriteFreq(1000);
     analogWriteRange(1023);
-    analogWrite(TFT_BL, BL_FULL);                  // full bright on boot
+    analogWrite(TFT_BL, BL_FULL);                  // active-low, full bright on boot
+#endif
 
     tft.setTextDatum(MC_DATUM);
     s_initialized = true;
@@ -126,8 +136,13 @@ void Display::begin() {
 
 void Display::setBrightness(uint8_t pct) {
     if (pct > 100) pct = 100;
-    // Inverted PWM: 0 = full bright, 1023 = off
+#if defined(ESP32)
+    // Active-high 8-bit PWM: 0 = off, 255 = full bright.
+    uint16_t pwm = (uint16_t)((uint32_t)pct * 255 / 100);
+#else
+    // Active-low PWM: 0 = full bright, 1023 = off.
     uint16_t pwm = 1023 - (uint16_t)((uint32_t)pct * 1023 / 100);
+#endif
     analogWrite(TFT_BL, pwm);
 }
 
@@ -139,10 +154,27 @@ void Display::clear() {
     tft.fillScreen(Theme::BG);
 }
 
+// Global user-chosen highlight color (0 = "auto", i.e. usage-based coloring).
+static uint16_t s_highlight = 0;
+void Display::setHighlight(uint16_t c) { s_highlight = c; }
+
+// Whether usage values represent consumed % (true) or remaining % (false).
+// Controls the direction of the "auto" usage coloring.
+static bool s_usageConsumed = false;
+void Display::setUsageConsumed(bool on) { s_usageConsumed = on; }
+
 uint16_t Display::usageColor(float pct) {
-    if (pct < 0)       return Theme::MUTED;
-    if (pct <= 20.0f)  return Theme::CORAL;
-    if (pct <= 50.0f)  return Theme::AMBER;
+    if (pct < 0)       return Theme::MUTED;          // no data → muted, regardless
+    if (s_highlight)   return s_highlight;           // user override (fixed accent)
+    if (s_usageConsumed) {
+        // pct = consumed: low = plenty left (green), high = exhausted (red).
+        if (pct >= 80.0f) return Theme::CORAL;
+        if (pct >= 50.0f) return Theme::AMBER;
+        return Theme::MINT;
+    }
+    // pct = remaining: low = nearly exhausted (red), high = plenty left (green).
+    if (pct <= 20.0f) return Theme::CORAL;
+    if (pct <= 50.0f) return Theme::AMBER;
     return Theme::MINT;
 }
 
@@ -399,6 +431,16 @@ void Display::dotsDivider(int x, int y, int w) {
 
 // Channel theme color — defined here (alongside Display because that's where it's
 // used most) but declared in theme.h so other modules can call it.
+uint16_t Theme::namedColor(const char* name) {
+    if (!name || !*name) return 0;
+    if (!strcmp(name, "coral")) return CORAL;
+    if (!strcmp(name, "amber")) return AMBER;
+    if (!strcmp(name, "mint"))  return MINT;
+    if (!strcmp(name, "sky"))   return SKY;
+    if (!strcmp(name, "lilac")) return LILAC;
+    return 0;   // "auto" / unknown
+}
+
 uint16_t Theme::channelColor(const char* name) {
     if (!name) return MUTED;
     if (!strcmp(name, "Claude"))  return CORAL;

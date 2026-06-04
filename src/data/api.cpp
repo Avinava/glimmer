@@ -1,8 +1,13 @@
 #include "api.h"
 #include "display.h"
-#include <ESP8266WiFi.h>
-#include <WiFiClientSecureBearSSL.h>
-#include <ESP8266HTTPClient.h>
+#include "compat.h"
+#if defined(ESP32)
+  #include <WiFiClientSecure.h>
+  #include <HTTPClient.h>
+#else
+  #include <WiFiClientSecureBearSSL.h>
+  #include <ESP8266HTTPClient.h>
+#endif
 #include <ArduinoJson.h>
 
 // ── time parsing ─────────────────────────────────────────────────────────────
@@ -48,22 +53,27 @@ String Api::formatCountdown(time_t t) {
 static bool tlsGetOnce(const String& url,
                        const std::function<void(HTTPClient&)>& addHeaders,
                        String& body, int& httpCode) {
+#if defined(ESP32)
+    WiFiClientSecure sc;
+    sc.setInsecure();
+#else
     BearSSL::WiFiClientSecure sc;
     sc.setInsecure();
     sc.setBufferSizes(4096, 1024);                      // 4K rx (cert chain), 1K tx
+#endif
     HTTPClient http;
     http.useHTTP10(true);                               // simpler/predictable, no chunked
     http.setTimeout(15000);
     if (!http.begin(sc, url)) {
         httpCode = -2;                                  // -2 = begin() failed (URL/TLS init)
         Serial.printf("[tls] http.begin failed, heap=%u, maxblk=%u\n",
-                      ESP.getFreeHeap(), ESP.getMaxFreeBlockSize());
+                      ESP.getFreeHeap(), compatMaxFreeBlock());
         return false;
     }
     addHeaders(http);
     httpCode = http.GET();                              // negative = HTTPClient error
     Serial.printf("[tls] GET → %d, heap=%u, maxblk=%u\n",
-                  httpCode, ESP.getFreeHeap(), ESP.getMaxFreeBlockSize());
+                  httpCode, ESP.getFreeHeap(), compatMaxFreeBlock());
     if (httpCode == HTTP_CODE_OK) body = http.getString();
     http.end();
     return httpCode == HTTP_CODE_OK;
@@ -80,7 +90,7 @@ static bool tlsGet(const String& url, const std::function<void(HTTPClient&)>& ad
     yield(); delay(20);
 
     Serial.printf("[tls] heap=%u maxblk=%u url=%s\n",
-                  ESP.getFreeHeap(), ESP.getMaxFreeBlockSize(), url.c_str());
+                  ESP.getFreeHeap(), compatMaxFreeBlock(), url.c_str());
 
     if (tlsGetOnce(url, addHeaders, body, httpCode)) return true;
 
@@ -184,11 +194,13 @@ bool Api::fetchClaude(const Settings& s, ClaudeData& out) {
     if (deserializeJson(doc, body)) { snprintf(out.err, sizeof(out.err), "parse"); return false; }
     body = String();
 
-    auto remainingFromKey = [&](const char* k) -> float {
+    // utilization is CONSUMED %. Report consumed or remaining per user setting.
+    auto pctFromKey = [&](const char* k) -> float {
         if (!doc[k].is<JsonObject>()) return -1.0f;
         JsonVariant u = doc[k]["utilization"];
         if (u.isNull()) return -1.0f;
-        float v = 100.0f - u.as<float>();
+        float v = u.as<float>();
+        if (!s.usageShowConsumed) v = 100.0f - v;
         if (v < 0) v = 0; if (v > 100) v = 100;
         return v;
     };
@@ -197,8 +209,8 @@ bool Api::fetchClaude(const Settings& s, ClaudeData& out) {
         return (s && *s) ? parseISO8601(s) : 0;
     };
 
-    out.sessionPct   = remainingFromKey("five_hour");
-    out.weeklyPct    = remainingFromKey("seven_day");
+    out.sessionPct   = pctFromKey("five_hour");
+    out.weeklyPct    = pctFromKey("seven_day");
     out.sessionReset = resetFromKey("five_hour");
     out.weeklyReset  = resetFromKey("seven_day");
 
@@ -217,8 +229,9 @@ bool Api::fetchClaude(const Settings& s, ClaudeData& out) {
         String k(key);
         if (!k.startsWith("seven_day_") && !k.startsWith("five_hour_")) continue;
         if (slot >= 3) continue;
-        float rem = 100.0f - u.as<float>();
-        if (rem < 0) rem = 0; if (rem > 100) rem = 100;
+        float used = u.as<float>();
+        if (!s.usageShowConsumed) used = 100.0f - used;
+        if (used < 0) used = 0; if (used > 100) used = 100;
         String lbl = k;
         if (lbl.startsWith("seven_day_"))  lbl = lbl.substring(10);
         else if (lbl.startsWith("five_hour_")) lbl = lbl.substring(10);
@@ -229,7 +242,7 @@ bool Api::fetchClaude(const Settings& s, ClaudeData& out) {
             if (strcmp(out.models[i].label, lbl.c_str()) == 0) { dup = true; break; }
         }
         if (dup) continue;
-        out.models[slot].pct = rem;
+        out.models[slot].pct = used;
         strncpy(out.models[slot].label, lbl.c_str(), sizeof(out.models[0].label) - 1);
         out.models[slot].label[sizeof(out.models[0].label) - 1] = '\0';
         slot++;
@@ -277,7 +290,9 @@ bool Api::fetchCodex(const Settings& s, CodexData& out) {
     JsonVariant sw = doc["rate_limit"]["secondary_window"];
     if (pw.isNull() || sw.isNull()) { snprintf(out.err, sizeof(out.err), "no data"); out.valid=false; return false; }
 
-    auto rem = [](float u){ float v = 100.0f - u; if (v<0)v=0; if (v>100)v=100; return v; };
+    // used_percent is CONSUMED %. Report consumed or remaining per user setting.
+    auto rem = [&s](float u){ float v = s.usageShowConsumed ? u : (100.0f - u);
+                              if (v<0)v=0; if (v>100)v=100; return v; };
     out.primaryPct     = rem(pw["used_percent"].as<float>());
     out.secondaryPct   = rem(sw["used_percent"].as<float>());
     out.primaryReset   = (time_t)pw["reset_at"].as<long>();
