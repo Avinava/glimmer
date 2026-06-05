@@ -9,13 +9,15 @@ ESP8266's tiny buffers wedges curl mid-upload over the slow AP.
 
 1. Get the stock firmware onto your home Wi-Fi (one-time).
 2. Find the device's home-LAN IP.
-3. `pio run` to build glimmer.
-4. `curl -F "firmware=@.pio/build/nodemcuv2/firmware.bin" http://<device-ip>/update`
-5. `curl -F "filesystem=@.pio/build/nodemcuv2/littlefs.bin" http://<device-ip>/update`
+3. Download the prebuilt images (no toolchain needed):
+   `curl -L -O https://github.com/Avinava/glimmer/releases/download/latest/littlefs.bin`
+   `curl -L -O https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin`
+4. `curl -F "filesystem=@littlefs.bin" http://<device-ip>/update` (filesystem **first**)
+5. `curl -F "firmware=@firmware.bin"   http://<device-ip>/update`
 6. Device boots into glimmer's setup AP. Connect to it once to enter
    your real Wi-Fi credentials.
 
-That's it.
+That's it. (Prefer to build from source? See Step 3, Option B.)
 
 ---
 
@@ -83,7 +85,23 @@ nmap -sn 192.168.0.0/24
 
 ---
 
-## Step 3 — Build glimmer
+## Step 3 — Get the glimmer images
+
+### Option A — download the prebuilt binaries (recommended, no toolchain)
+
+CI builds every push to `main` and publishes the images to the rolling
+[`latest`](https://github.com/Avinava/glimmer/releases/tag/latest) release.
+Grab them into your working directory:
+
+```bash
+curl -L -O https://github.com/Avinava/glimmer/releases/download/latest/littlefs.bin
+curl -L -O https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin
+```
+
+For a pinned version instead of the rolling latest, use a `v*` tag's assets:
+`https://github.com/Avinava/glimmer/releases/download/v0.20.2/firmware.bin`.
+
+### Option B — build from source (for developers)
 
 ```bash
 cd <repo>
@@ -91,10 +109,8 @@ pio run -e nodemcuv2              # builds firmware.bin
 pio run -e nodemcuv2 -t buildfs   # builds littlefs.bin (fonts + web UI)
 ```
 
-Both artifacts land in `.pio/build/nodemcuv2/`.
-
-If PlatformIO isn't installed: `brew install platformio` (macOS) or
-`pip install platformio` (anywhere).
+Both artifacts land in `.pio/build/nodemcuv2/`. If PlatformIO isn't
+installed: `brew install platformio` (macOS) or `pip install platformio`.
 
 ---
 
@@ -103,13 +119,16 @@ If PlatformIO isn't installed: `brew install platformio` (macOS) or
 **Order matters.** Flash filesystem FIRST so the device boots straight
 into glimmer's setup mode (where it expects glimmer's fonts on FS).
 
+The commands below assume **Option A** (binaries in your current directory).
+For **Option B**, point the paths at `.pio/build/nodemcuv2/` instead.
+
 ```bash
 DEVICE_IP=<your device's home-LAN IP>
 
-curl -F "filesystem=@.pio/build/nodemcuv2/littlefs.bin" http://$DEVICE_IP/update
+curl -F "filesystem=@littlefs.bin" http://$DEVICE_IP/update
 # wait ~10 s for reboot, device drops to AP mode
 
-curl -F "firmware=@.pio/build/nodemcuv2/firmware.bin"   http://$DEVICE_IP/update
+curl -F "firmware=@firmware.bin"   http://$DEVICE_IP/update
 # OR (after device is in AP mode): http://192.168.4.1/update
 ```
 
@@ -138,18 +157,23 @@ Steps:
 
 ## Re-flashing (any subsequent update)
 
-Once glimmer is on the device:
+Once glimmer is on the device (download the latest images first, or use
+your local `.pio/build/nodemcuv2/` build):
 
 ```bash
+# Latest CI build (or skip if building locally):
+curl -L -O https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin
+curl -L -O https://github.com/Avinava/glimmer/releases/download/latest/littlefs.bin
+
 # Optional: back up your config first (uploadfs wipes /config.json)
 curl -s -o /tmp/glimmer-config-backup.json http://<device-ip>/api/export
 
 # Firmware-only flash (preserves config):
-curl -F "firmware=@.pio/build/nodemcuv2/firmware.bin" http://<device-ip>/update
+curl -F "firmware=@firmware.bin" http://<device-ip>/update
 
 # Full flash (firmware + new fonts/web UI):
-curl -F "firmware=@.pio/build/nodemcuv2/firmware.bin"   http://<device-ip>/update
-curl -F "filesystem=@.pio/build/nodemcuv2/littlefs.bin" http://<device-ip>/update
+curl -F "firmware=@firmware.bin"   http://<device-ip>/update
+curl -F "filesystem=@littlefs.bin" http://<device-ip>/update
 # (config wiped — restore via setup AP and POST the backup to /api/import)
 ```
 
