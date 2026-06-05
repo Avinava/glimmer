@@ -40,4 +40,9 @@ namespace Api {
 
     // Helpers for displaying countdowns.
     String formatCountdown(time_t t);
+
+    // Debug telemetry from the last Claude usage fetch (surfaced in /api/state).
+    int  lastClaudeHttp();        // HTTP code (or negative HTTPClient error)
+    int  lastClaudeBodyLen();     // response body length, -1 if no 200
+    const char* lastClaudeParse(); // deserialization result ("Ok" on success)
 }
