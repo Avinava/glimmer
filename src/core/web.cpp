@@ -116,6 +116,14 @@ static void handleApiState() {
     d["claude_configured"]   = pSettings && !pSettings->claudeKey.isEmpty();
     d["codex_configured"]    = pSettings && !pSettings->codexToken.isEmpty();
     d["weather_configured"]  = pSettings && (pSettings->weatherLat != 0.0f || pSettings->weatherLon != 0.0f);
+    // Diagnostics for the cold-boot Claude parse failure.
+    d["claude_http"]         = Api::lastClaudeHttp();
+    d["claude_bodylen"]      = Api::lastClaudeBodyLen();
+    d["claude_parse"]        = Api::lastClaudeParse();
+    if (const ClaudeData* cd = mainClaudeData()) {
+        d["claude_err"]      = cd->err;
+        d["claude_valid"]    = cd->valid;
+    }
     String out; serializeJson(d, out);
     server.send(200, "application/json", out);
 }

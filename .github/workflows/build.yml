@@ -1,0 +1,114 @@
+name: build
+
+# Builds the firmware + LittleFS images and publishes them so a device can be
+# flashed for the first time WITHOUT a local PlatformIO toolchain.
+#
+#   - push to main        → rebuilds and replaces the rolling `latest` release
+#                           (stable URLs, always current)
+#   - push a v* tag       → cuts a permanent, versioned release
+#   - pull request         → build only (uploads a CI artifact, no release)
+#
+# First-time flash (see FLASHING.md):
+#   curl -L -O https://github.com/<owner>/glimmer/releases/download/latest/littlefs.bin
+#   curl -L -O https://github.com/<owner>/glimmer/releases/download/latest/firmware.bin
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build firmware
+        run: pio run -e nodemcuv2
+
+      - name: Build filesystem (LittleFS)
+        run: pio run -e nodemcuv2 -t buildfs
+
+      - name: Stage binaries
+        id: stage
+        run: |
+          mkdir -p dist
+          cp .pio/build/nodemcuv2/firmware.bin dist/firmware.bin
+          cp .pio/build/nodemcuv2/littlefs.bin dist/littlefs.bin
+          ver=$(grep -m1 FW_VERSION platformio.ini | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.-]*' || true)
+          echo "version=${ver:-unknown}" >> "$GITHUB_OUTPUT"
+          ls -la dist
+
+      - name: Upload CI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: glimmer-binaries
+          path: dist/*.bin
+          retention-days: 30
+
+      # ── Rolling `latest` release — every push to main ──
+      # Delete the old one first so the `latest` tag moves to this commit and
+      # assets are replaced cleanly (softprops won't move an existing tag).
+      - name: Reset rolling 'latest' release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete latest --cleanup-tag --yes || true
+
+      - name: Publish rolling 'latest' release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "glimmer — latest main build (${{ steps.stage.outputs.version }})"
+          body: |
+            Auto-built from `main` (`${{ github.sha }}`), firmware **${{ steps.stage.outputs.version }}**.
+
+            First-time flash — no toolchain needed (see [FLASHING.md](../../blob/main/FLASHING.md)).
+            Flash filesystem first, then firmware:
+            ```bash
+            curl -L -O https://github.com/${{ github.repository }}/releases/download/latest/littlefs.bin
+            curl -L -O https://github.com/${{ github.repository }}/releases/download/latest/firmware.bin
+            curl -F "filesystem=@littlefs.bin" http://<device-ip>/update
+            curl -F "firmware=@firmware.bin"   http://<device-ip>/update
+            ```
+          files: dist/*.bin
+          make_latest: 'true'
+          prerelease: false
+
+      # ── Versioned release — on a v* tag ──
+      - name: Publish versioned release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "glimmer ${{ github.ref_name }}"
+          body: |
+            Firmware **${{ steps.stage.outputs.version }}** — tag `${{ github.ref_name }}`.
+
+            Download `firmware.bin` / `littlefs.bin` below, or always grab the
+            newest main build from the [`latest`](../../releases/download/latest/firmware.bin) release.
+          files: dist/*.bin
+          # Don't steal the "Latest" pointer from the rolling main build.
+          make_latest: 'false'

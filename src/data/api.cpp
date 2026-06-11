@@ -116,6 +116,34 @@ static constexpr int kMaxSilentFails = 3;
 static int s_claudeFails = 0;
 static int s_codexFails  = 0;
 
+// ── Debug telemetry (surfaced in /api/state to diagnose cold-boot failures) ──
+static int  s_dbgClaudeHttp    = 0;     // last Claude usage HTTP code
+static int  s_dbgClaudeBodyLen = -1;    // last Claude usage body length
+static char s_dbgClaudeParse[24] = "";  // last deserialization error text ("Ok" on success)
+namespace Api {
+    int  lastClaudeHttp()    { return s_dbgClaudeHttp; }
+    int  lastClaudeBodyLen() { return s_dbgClaudeBodyLen; }
+    const char* lastClaudeParse() { return s_dbgClaudeParse; }
+}
+
+// Unified soft-fail: stay quiet for the first few consecutive failures (keep
+// stale data, or show a neutral "--" placeholder on cold boot) and only
+// escalate to an on-screen error once we've failed kMaxSilentFails in a row.
+// This fixes the cold-boot asymmetry where the very first transient hiccup —
+// before any valid data exists — surfaced a scary "JSON parse"/"Auth" error.
+static bool claudeSoftFail(ClaudeData& out, const char* err) {
+    s_claudeFails++;
+    if (s_claudeFails < kMaxSilentFails) {
+        if (!out.valid) out.err[0] = '\0';   // cold boot → neutral "--", not an error
+        Serial.printf("[claude] soft fail (%s) %d/%d — %s\n", err, s_claudeFails,
+                      kMaxSilentFails, out.valid ? "keeping stale" : "showing placeholder");
+        return false;
+    }
+    strncpy(out.err, err, sizeof(out.err) - 1);
+    out.err[sizeof(out.err) - 1] = '\0';
+    return false;
+}
+
 // ── Claude fetch ─────────────────────────────────────────────────────────────
 
 static String s_cachedOrgId;
@@ -138,8 +166,21 @@ static bool fetchClaudeOrg(const String& key, String& orgId, char errBuf[]) {
         snprintf(errBuf, 24, "Auth %d", code);
         return false;
     }
+    // The org list is a large payload (each org carries capabilities/settings/
+    // billing metadata). Parsing the whole thing into an elastic JsonDocument
+    // needs ~2-3× the body size in CONTIGUOUS heap, which on this 32 KB part
+    // hits NoMemory — surfacing as a bogus "JSON parse" error on cold boot.
+    // A filter keeps only [0].uuid, shrinking the document to a few bytes.
+    JsonDocument filter;
+    filter[0]["uuid"] = true;
     JsonDocument doc;
-    if (deserializeJson(doc, body)) { snprintf(errBuf, 24, "JSON parse"); return false; }
+    DeserializationError jerr = deserializeJson(doc, body, DeserializationOption::Filter(filter));
+    if (jerr) {
+        Serial.printf("[claude] org parse err: %s (body=%u, heap=%u, maxblk=%u)\n",
+                      jerr.c_str(), body.length(), ESP.getFreeHeap(), compatMaxFreeBlock());
+        snprintf(errBuf, 24, "JSON %s", jerr.c_str());
+        return false;
+    }
     body = String();
     JsonArray arr = doc.as<JsonArray>();
     if (arr.size() == 0) { snprintf(errBuf, 24, "No org"); return false; }
@@ -158,13 +199,7 @@ bool Api::fetchClaude(const Settings& s, ClaudeData& out) {
     char orgErr[24] = "";
     bool wasCached = (s_cachedOrgId.length() && s_cachedOrgKey == s.claudeKey);
     if (!fetchClaudeOrg(s.claudeKey, orgId, orgErr)) {
-        s_claudeFails++;
-        if (out.valid && s_claudeFails < kMaxSilentFails) {
-            Serial.printf("[claude] org fetch failed (%s), attempt %d/%d — keeping stale data\n", orgErr, s_claudeFails, kMaxSilentFails);
-            return false;
-        }
-        strncpy(out.err, orgErr, sizeof(out.err) - 1);
-        return false;
+        return claudeSoftFail(out, orgErr);
     }
     if (!wasCached) { yield(); delay(150); }
 
@@ -177,22 +212,38 @@ bool Api::fetchClaude(const Settings& s, ClaudeData& out) {
         h.addHeader("Referer",    "https://claude.ai");
         h.addHeader("Origin",     "https://claude.ai");
     };
-    if (!tlsGet(url, addH, body, code)) {
-        if (code < 0) {
-            s_claudeFails++;
-            if (out.valid && s_claudeFails < kMaxSilentFails) {
-                Serial.printf("[claude] transient TLS failure (%d), attempt %d/%d — keeping stale data\n", code, s_claudeFails, kMaxSilentFails);
-                return false;
-            }
+    // GET + parse with a single re-fetch on parse failure: a NoMemory/truncated
+    // body is transient (heap fragmentation), and a fresh GET after the heap
+    // settles usually succeeds. Telemetry is recorded for /api/state.
+    JsonDocument doc;
+    DeserializationError jerr;
+    bool parsed = false;
+    for (int attempt = 0; attempt < 2 && !parsed; attempt++) {
+        if (attempt) { yield(); delay(200); }
+        if (!tlsGet(url, addH, body, code)) {
+            s_dbgClaudeHttp = code; s_dbgClaudeBodyLen = -1;
+            snprintf(s_dbgClaudeParse, sizeof(s_dbgClaudeParse), "no-200");
+            char e[24]; snprintf(e, sizeof(e), "HTTP %d", code);
+            return claudeSoftFail(out, e);
         }
-        snprintf(out.err, sizeof(out.err), "HTTP %d", code);
-        return false;
+        s_dbgClaudeHttp    = code;
+        s_dbgClaudeBodyLen = (int)body.length();
+        jerr = deserializeJson(doc, body);
+        strncpy(s_dbgClaudeParse, jerr.c_str(), sizeof(s_dbgClaudeParse) - 1);
+        s_dbgClaudeParse[sizeof(s_dbgClaudeParse) - 1] = '\0';
+        if (!jerr) { parsed = true; break; }
+        Serial.printf("[claude] usage parse err: %s (body=%u, heap=%u, maxblk=%u) attempt %d\n",
+                      jerr.c_str(), body.length(), ESP.getFreeHeap(),
+                      compatMaxFreeBlock(), attempt + 1);
+        doc.clear();
+    }
+    body = String();
+    if (!parsed) {
+        char e[24]; snprintf(e, sizeof(e), "JSON %s", jerr.c_str());
+        return claudeSoftFail(out, e);
     }
     out.err[0] = '\0';
     s_claudeFails = 0;
-    JsonDocument doc;
-    if (deserializeJson(doc, body)) { snprintf(out.err, sizeof(out.err), "parse"); return false; }
-    body = String();
 
     // utilization is CONSUMED %. Report consumed or remaining per user setting.
     auto pctFromKey = [&](const char* k) -> float {

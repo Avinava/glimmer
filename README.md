@@ -28,23 +28,32 @@
 All channels render via region-based partial repaints — no flickering
 between data updates.
 
-## Quick start
+## Quick start — flash the prebuilt binaries (no toolchain)
+
+Every push to `main` is built by CI and published to the
+**[`latest`](https://github.com/Avinava/glimmer/releases/tag/latest)**
+release, so you don't need PlatformIO to flash a device:
 
 ```bash
-git clone git@github.com:<you>/glimmer.git
-cd glimmer
-pio run -e nodemcuv2 -t buildfs    # build LittleFS image (fonts + web UI)
-pio run -e nodemcuv2               # build firmware
+# Grab the latest CI-built images
+curl -L -O https://github.com/Avinava/glimmer/releases/download/latest/littlefs.bin
+curl -L -O https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin
 
-# Flash a freshly-stocked SmallTV-Ultra (over your home LAN):
+# Flash a freshly-stocked SmallTV-Ultra (over your home LAN). Filesystem FIRST:
 DEVICE_IP=<find via arp or device screen>
-curl -F "filesystem=@.pio/build/nodemcuv2/littlefs.bin" http://$DEVICE_IP/update
-curl -F "firmware=@.pio/build/nodemcuv2/firmware.bin"   http://$DEVICE_IP/update
+curl -F "filesystem=@littlefs.bin" http://$DEVICE_IP/update
+curl -F "firmware=@firmware.bin"   http://$DEVICE_IP/update
 
 # Device reboots into glimmer's setup AP. Connect to "glimmer-setup" Wi-Fi
 # (open, no password) and visit http://192.168.4.1/ to enter your home
 # Wi-Fi credentials.
 ```
+
+Want a specific release instead of the rolling latest? Each `v*` tag has its
+own assets under **[Releases](https://github.com/Avinava/glimmer/releases)**.
+
+Prefer to build from source? See [Development](#development) below
+(`pio run` + `pio run -t buildfs`).
 
 On the **ESP32 Cheap Yellow Display** USB is data-wired, so you flash
 directly over USB (no OTA needed):
@@ -91,7 +100,9 @@ restore your config.
 >    `glimmer-setup` after first glimmer flash).
 > 3. Verify connectivity at every step (curl `/api/state` etc.) —
 >    don't assume; always confirm with me before each handoff.
-> 4. Build firmware + filesystem locally (`pio run` + `pio run -t buildfs`).
+> 4. Download the prebuilt `firmware.bin` + `littlefs.bin` from the
+>    [`latest`](https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin)
+>    release (no toolchain needed; build locally only for unpushed changes).
 > 5. OTA-flash filesystem first, then firmware.
 > 6. After full flash, restore my config from backup OR walk me
 >    through first-time setup (Wi-Fi → tokens → channels → personalization).

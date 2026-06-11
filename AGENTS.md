@@ -64,6 +64,23 @@ glimmer/
 - Default: flash firmware-only (preserves config). Filesystem flash =
   config wipe = recovery dance.
 
+## CI / prebuilt binaries
+
+GitHub Actions (`.github/workflows/build.yml`) builds on every push and PR:
+
+- **Push to `main`** → rebuilds the rolling **`latest`** release. Stable URLs,
+  always current:
+  `https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin`
+  (and `littlefs.bin`).
+- **Push a `v*` tag** → cuts a permanent, versioned release with the same assets.
+- **PR** → build only (CI artifact), no release.
+
+For first-time flashing you (or the user) can **download these instead of
+running `pio run`** — no toolchain needed. The `flash-device` skill and
+`FLASHING.md` default to the download path. Only build locally when flashing
+*uncommitted* changes. To cut a version: bump `FW_VERSION`, then
+`git tag vX.Y.Z && git push --tags`.
+
 ## Don't
 
 - Add libraries beyond what's in `platformio.ini` unless absolutely

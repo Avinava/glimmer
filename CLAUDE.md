@@ -34,6 +34,12 @@ ESP8266 build working when touching shared code (verify both compile).
 
 ## OTA flash workflow
 
+Prebuilt `firmware.bin` / `littlefs.bin` are published by CI
+(`.github/workflows/build.yml`) to the rolling `latest` release —
+`https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin`.
+Download those instead of building (steps 2–3) when flashing committed code;
+build locally only for uncommitted changes.
+
 ```bash
 # 1. Back up config BEFORE any uploadfs (it wipes /config.json)
 curl -s -o /tmp/glimmer-config-backup.json http://<device-ip>/api/export

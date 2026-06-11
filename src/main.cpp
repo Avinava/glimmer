@@ -271,27 +271,46 @@ void loop() {
 
     uint32_t now = millis();
 
-    // WiFi health check — if disconnected >30 s, attempt reconnect
+    // WiFi health check. "Healthy" means associated AND holding a DHCP lease.
+    // A DHCP lease-renewal failure (common after ~10-12 h) leaves the link
+    // associated — WiFi.status() stays WL_CONNECTED — but with IP 0.0.0.0, so
+    // a status-only check never notices and the device silently stops talking
+    // to the network. We treat "no IP" as lost too.
+    //
+    // Recovery is ALWAYS in-place (full RF reset, mirroring tryConnect()) and
+    // never ESP.restart(): a software restart does NOT reset the ESP8266 WiFi
+    // RF/calibration, so the post-restart connect reliably fails and the device
+    // drops into AP mode — stuck there until a physical power-cycle. Retrying in
+    // STA forever recovers cleanly whenever WiFi/DHCP returns. The 30 s arm
+    // debounces brief glitches so a momentary blip doesn't bounce the radio.
     static uint32_t lastWifiCheck = 0;
-    static uint32_t wifiLostSince = 0;
+    static uint32_t wifiRetrySince = 0;
     if (!g_apMode && now - lastWifiCheck >= 10000) {
         lastWifiCheck = now;
-        if (WiFi.status() != WL_CONNECTED) {
-            if (wifiLostSince == 0) {
-                wifiLostSince = now;
-                Serial.println(F("[wifi] connection lost, waiting..."));
-            } else if (now - wifiLostSince >= 30000) {
-                Serial.println(F("[wifi] reconnecting..."));
+        bool healthy = (WiFi.status() == WL_CONNECTED)
+                    && (WiFi.localIP() != IPAddress(0U));
+        if (!healthy) {
+            if (wifiRetrySince == 0) {
+                wifiRetrySince = now;
+                Serial.printf("[wifi] unhealthy (status=%d ip=%s), waiting...\n",
+                              WiFi.status(), WiFi.localIP().toString().c_str());
+            } else if (now - wifiRetrySince >= 30000) {
+                Serial.println(F("[wifi] reconnecting (full RF reset)..."));
+                WiFi.persistent(false);
                 WiFi.disconnect(true);
-                delay(100);
+                WiFi.mode(WIFI_OFF);
+                delay(150);
                 WiFi.mode(WIFI_STA);
+                compatWifiTune();
+                WiFi.setAutoReconnect(true);
+                compatWifiHostname(MDNS_HOSTNAME);
                 WiFi.begin(g_settings.wifiSSID.c_str(), g_settings.wifiPass.c_str());
-                wifiLostSince = now;
+                wifiRetrySince = now;
             }
         } else {
-            if (wifiLostSince != 0)
+            if (wifiRetrySince != 0)
                 Serial.println(F("[wifi] reconnected"));
-            wifiLostSince = 0;
+            wifiRetrySince = 0;
         }
     }
 

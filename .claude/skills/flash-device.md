@@ -109,7 +109,24 @@ curl -s --max-time 3 http://<ip>/city.json | head -c 100
 
 If you see JSON with a `"loc":` key, that's the device.
 
-### A.5 Build glimmer
+### A.5 Get the glimmer images
+
+**Default — download the prebuilt binaries (no toolchain needed).** CI
+publishes every push to `main` at the rolling `latest` release. Pull them into
+a working dir:
+
+```bash
+cd /tmp/glimmer-flash 2>/dev/null || { mkdir -p /tmp/glimmer-flash && cd /tmp/glimmer-flash; }
+curl -L -f -o littlefs.bin https://github.com/Avinava/glimmer/releases/download/latest/littlefs.bin
+curl -L -f -o firmware.bin https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin
+ls -la firmware.bin littlefs.bin   # firmware ~600 KB, littlefs ~1 MB
+```
+
+Use this unless the user explicitly wants *uncommitted local changes* flashed.
+In the curl `/update` commands below, the binaries are then `firmware.bin` /
+`littlefs.bin` in this dir.
+
+**Fallback — build from source** (only for local/unpushed changes):
 
 ```bash
 cd <repo-root>
@@ -118,7 +135,8 @@ pio run -e nodemcuv2                 # outputs .pio/build/nodemcuv2/firmware.bin
 ```
 
 Both must print `[SUCCESS]`. If a build fails citing missing `tools/ttf/*.ttf`,
-the user needs to run the `regenerate-fonts` skill first.
+the user needs to run the `regenerate-fonts` skill first. With this path, use
+the `.pio/build/nodemcuv2/` paths in the `/update` commands below.
 
 ### A.6 First flash — filesystem then firmware
 
@@ -127,9 +145,11 @@ firmware renders fallback glyphs.
 
 ```bash
 DEVICE_IP=<from A.4>
+# Paths assume A.5 download dir (/tmp/glimmer-flash). For a local build,
+# substitute .pio/build/nodemcuv2/littlefs.bin etc.
 
 # 1. Filesystem
-curl -F "filesystem=@.pio/build/nodemcuv2/littlefs.bin" http://$DEVICE_IP/update
+curl -F "filesystem=@littlefs.bin" http://$DEVICE_IP/update
 # Device shows "OTA UPDATE" with a coral progress bar (well, after step 2
 # completes — stock firmware doesn't show that screen yet). Wait ~15s.
 
@@ -156,7 +176,7 @@ is) and `"wifi":"ap"`. If you see this, the FS flash worked.
 
 ```bash
 # Now flash firmware via the setup AP
-curl -F "firmware=@.pio/build/nodemcuv2/firmware.bin" http://192.168.4.1/update
+curl -F "firmware=@firmware.bin" http://192.168.4.1/update
 ```
 
 ### A.7 First-time setup
@@ -221,11 +241,18 @@ Ask the user explicitly: "Did you change anything under `data/`?"
 
 ### B.4 Firmware-only flash
 
+Default: flash the latest CI build. (Build locally only for unpushed changes.)
+
 ```bash
-pio run -e nodemcuv2
-curl -F "firmware=@.pio/build/nodemcuv2/firmware.bin" http://<device-ip>/update
+cd /tmp/glimmer-flash 2>/dev/null || { mkdir -p /tmp/glimmer-flash && cd /tmp/glimmer-flash; }
+curl -L -f -o firmware.bin https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin
+curl -F "firmware=@firmware.bin" http://<device-ip>/update
 # Wait ~10 s for reboot, then:
 curl -s http://<device-ip>/api/state    # confirm new fw version
+
+# Local-build alternative:
+#   pio run -e nodemcuv2
+#   curl -F "firmware=@.pio/build/nodemcuv2/firmware.bin" http://<device-ip>/update
 ```
 
 Done.
@@ -233,17 +260,18 @@ Done.
 ### B.5 Full flash (firmware + filesystem)
 
 ```bash
-pio run -e nodemcuv2 -t buildfs
-pio run -e nodemcuv2
+# Default: latest CI build (or build locally with pio run + -t buildfs)
+cd /tmp/glimmer-flash 2>/dev/null || { mkdir -p /tmp/glimmer-flash && cd /tmp/glimmer-flash; }
+curl -L -f -o firmware.bin https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin
+curl -L -f -o littlefs.bin https://github.com/Avinava/glimmer/releases/download/latest/littlefs.bin
 
 # Firmware first
-curl -F "firmware=@.pio/build/nodemcuv2/firmware.bin" http://<device-ip>/update
+curl -F "firmware=@firmware.bin" http://<device-ip>/update
 # Wait ~10 s
 curl -s http://<device-ip>/api/state    # confirm new fw
 
 # Filesystem (wipes config, reboots to AP)
-curl -F "filesystem=@.pio/build/nodemcuv2/filesystem.bin" http://<device-ip>/update || \
-curl -F "filesystem=@.pio/build/nodemcuv2/littlefs.bin"  http://<device-ip>/update
+curl -F "filesystem=@littlefs.bin" http://<device-ip>/update
 ```
 
 **Tell the user:**
