@@ -5,9 +5,9 @@
 # glimmer
 
 > A pixel-art always-on desk widget. Custom firmware for the **GeekMagic
-> SmallTV-Ultra** that rotates through glanceable channels — Claude / Codex
-> usage, clock, weather, push cards — with crisp retro typography on a
-> 240×240 panel.
+> SmallTV-Ultra** (and the **ESP32 "Cheap Yellow Display"**) that rotates
+> through glanceable channels — Claude / Codex usage, clock, weather, push
+> cards — with crisp retro typography.
 
 ---
 
@@ -55,6 +55,22 @@ own assets under **[Releases](https://github.com/Avinava/glimmer/releases)**.
 Prefer to build from source? See [Development](#development) below
 (`pio run` + `pio run -t buildfs`).
 
+On the **ESP32 Cheap Yellow Display** USB is data-wired, so you flash
+directly over USB (no OTA needed):
+
+```bash
+pio run -e cyd -t buildfs   # build LittleFS image (fonts + web UI)
+pio run -e cyd              # build firmware
+pio run -e cyd -t upload    # flash firmware over USB
+pio run -e cyd -t uploadfs  # flash filesystem over USB
+# Then connect to the "glimmer-setup" AP → http://192.168.4.1/ as above.
+```
+
+> Note: `-t uploadfs` rewrites the whole LittleFS partition, which wipes
+> `/config.json`. To keep your settings across a filesystem update, back up
+> first (`curl http://<device-ip>/api/export`) and restore after via the
+> setup AP (`POST /api/import`).
+
 For the full flashing dance (including the one-time "get the stock
 firmware onto your Wi-Fi first" step), see **[FLASHING.md](./FLASHING.md)**.
 
@@ -101,11 +117,25 @@ needs the AP-rejoin step to recover).
 
 ## Hardware
 
+glimmer supports two targets. The ESP32 port is layered behind
+`#if defined(ESP32)`, so the original ESP8266 build is unchanged.
+
+### GeekMagic SmallTV-Ultra — original target (`-e nodemcuv2`)
+
 - **MCU**: ESP8266, 80–160 MHz, ~30 KB free RAM
 - **Display**: 240×240 ST7789V IPS TFT (requires `invertDisplay(true)`)
 - **Backlight**: PWM on GPIO5, **active-low** (0 = full bright, 1023 = off)
 - **Flash**: 4 MB total → 3 MB sketch / 1 MB LittleFS (`eagle.flash.4m1m.ld`)
-- **USB-C**: power only — no data wired to MCU
+- **USB-C**: power only — no data wired to MCU (flash over Wi-Fi / OTA)
+- **Network**: Wi-Fi 2.4 GHz only
+
+### ESP32 "Cheap Yellow Display" — ESP32-2432S028R (`-e cyd`)
+
+- **MCU**: ESP32-WROOM-32, dual-core 240 MHz (mbedTLS instead of BearSSL)
+- **Display**: 320×240 ILI9341 (landscape); backlight **active-high** PWM on GPIO21
+- **Flash**: 4 MB (`huge_app.csv` → 3 MB app / ~1 MB LittleFS)
+- **USB**: data wired — flash directly over USB (`-t upload` / `-t uploadfs`)
+- **Extras**: XPT2046 resistive touch + microSD slot present but unused
 - **Network**: Wi-Fi 2.4 GHz only
 
 ### Known limitations
@@ -123,8 +153,10 @@ needs the AP-rejoin step to recover).
 ### Build
 
 ```bash
-pio run -e nodemcuv2              # firmware
+pio run -e nodemcuv2              # firmware  (ESP8266 / SmallTV-Ultra)
 pio run -e nodemcuv2 -t buildfs   # filesystem
+pio run -e cyd                    # firmware  (ESP32 / Cheap Yellow Display)
+pio run -e cyd -t buildfs         # filesystem
 ```
 
 ### Regenerate fonts

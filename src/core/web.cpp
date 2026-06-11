@@ -14,14 +14,23 @@
 
 #include "web.h"
 #include "display.h"
+#include "theme.h"
 #include "api.h"
-#include <ESP8266HTTPUpdateServer.h>
-#include <ESP8266WebServer.h>
-#include <ESP8266WiFi.h>
+#include "compat.h"
 #include <LittleFS.h>
 
-static ESP8266WebServer        server(80);
+#if defined(ESP32)
+  #include <HTTPUpdateServer.h>
+#else
+  #include <ESP8266HTTPUpdateServer.h>
+#endif
+
+static WebServerClass          server(80);
+#if defined(ESP32)
+static HTTPUpdateServer        updater;
+#else
 static ESP8266HTTPUpdateServer updater;
+#endif
 static Settings*               pSettings = nullptr;
 
 // Defined in src/channels/ch_push.cpp
@@ -77,7 +86,7 @@ static bool serveStatic(const String& uri) {
     String actual = useGz ? gz : path;
     if (!useGz && !LittleFS.exists(path)) return false;
 
-    File f = LittleFS.open(actual, "r");
+    fs::File f = LittleFS.open(actual, "r");
     if (!f) return false;
     // streamFile() auto-adds Content-Encoding: gzip when filename ends in .gz
     server.sendHeader("Cache-Control", "public, max-age=300");
@@ -102,7 +111,7 @@ static void handleApiState() {
     d["rssi"]                = WiFi.RSSI();
     d["uptime_s"]            = (uint32_t)(millis() / 1000);
     d["heap"]                = ESP.getFreeHeap();
-    d["maxblk"]              = ESP.getMaxFreeBlockSize();
+    d["maxblk"]              = compatMaxFreeBlock();
     d["cpu_mhz"]             = ESP.getCpuFreqMHz();
     d["claude_configured"]   = pSettings && !pSettings->claudeKey.isEmpty();
     d["codex_configured"]    = pSettings && !pSettings->codexToken.isEmpty();
@@ -147,6 +156,8 @@ static void handleApiGetSettings() {
     d["claudeWeeklyHero"] = s.claudeWeeklyHero;
     d["codexWeeklyHero"]  = s.codexWeeklyHero;
     d["invertDisplay"] = s.invertDisplay;
+    d["highlightColor"] = s.highlightColor;
+    d["usageShowConsumed"] = s.usageShowConsumed;
     d["nightDim"]      = s.nightDim;
     d["nightStart"]    = s.nightStart;
     d["nightEnd"]      = s.nightEnd;
@@ -176,6 +187,7 @@ static void applyIfPresent(Settings& s, JsonDocument& d) {
     applyStr("apiToken",      s.apiToken);
     applyStr("userName",      s.userName);
     applyStr("birthday",      s.birthday);
+    applyStr("highlightColor", s.highlightColor);
 
     auto applyU32 = [&](const char* k, uint32_t& dst, uint32_t lo, uint32_t hi) {
         if (d[k].is<int>() || d[k].is<unsigned int>()) {
@@ -232,6 +244,7 @@ static void applyIfPresent(Settings& s, JsonDocument& d) {
     applyBool("claudeWeeklyHero", s.claudeWeeklyHero);
     applyBool("codexWeeklyHero",  s.codexWeeklyHero);
     applyBool("invertDisplay",s.invertDisplay);
+    applyBool("usageShowConsumed", s.usageShowConsumed);
     applyBool("nightDim",    s.nightDim);
     applyBool("useFahrenheit", s.useFahrenheit);
     applyFloat("weatherLat", s.weatherLat);
@@ -251,6 +264,8 @@ static void handleApiPostSettings() {
     // Apply runtime-mutable settings immediately so the user sees the effect.
     Display::setInvert(pSettings->invertDisplay);
     Display::setBrightness(pSettings->brightness);
+    Display::setHighlight(Theme::namedColor(pSettings->highlightColor.c_str()));
+    Display::setUsageConsumed(pSettings->usageShowConsumed);
     // POSIX TZ string: positive offset east of UTC must be expressed as a
     // NEGATIVE POSIX offset (POSIX expresses "time to ADD to local to get UTC").
     // tzMinutes wins if non-zero (supports +5:30 India / +5:45 Nepal / etc.);
@@ -272,7 +287,7 @@ static void handleApiPostSettings() {
 }
 
 static void handleApiExport() {
-    File f = LittleFS.open("/config.json", "r");
+    fs::File f = LittleFS.open("/config.json", "r");
     if (!f) {
         // No saved config — synthesize from current
         handleApiGetSettings();
@@ -291,7 +306,7 @@ static void handleApiImport() {
         server.send(400, "application/json", "{\"error\":\"bad json\"}");
         return;
     }
-    File f = LittleFS.open("/config.json", "w");
+    fs::File f = LittleFS.open("/config.json", "w");
     if (!f) { server.send(500, "application/json", "{\"error\":\"fs write\"}"); return; }
     f.print(server.arg("plain"));
     f.close();
@@ -340,7 +355,7 @@ static void handleMcp() {
         return;
     }
     const char* method = req["method"] | "";
-    auto id            = req["id"];
+    JsonVariant id     = req["id"];
 
     JsonDocument resp;
     resp["jsonrpc"] = "2.0";
@@ -395,7 +410,7 @@ static void handleMcp() {
             st["fw"]              = FW_VERSION;
             st["uptime_s"]        = (uint32_t)(millis() / 1000);
             st["heap"]            = ESP.getFreeHeap();
-            st["maxblk"]          = ESP.getMaxFreeBlockSize();
+            st["maxblk"]          = compatMaxFreeBlock();
             st["wifi"]            = WiFi.status() == WL_CONNECTED ? "connected" : "ap";
             st["rssi"]            = WiFi.RSSI();
             st["active_channel"]  = mainActiveChannelName();
@@ -474,7 +489,12 @@ void Web::begin(Settings& settings) {
         }
     });
 
+#if defined(ESP32)
+    const char* headerKeys[] = { "Authorization" };
+    server.collectHeaders(headerKeys, 1);
+#else
     server.collectHeaders("Authorization");
+#endif
     server.begin();
 }
 

@@ -222,6 +222,18 @@
         <option value="80">80% (default)</option>
         <option value="100">100%</option>
       </select>
+      <label>Highlight color (usage numbers + bars)</label>
+      <select x-model="settings.highlightColor">
+        <option value="auto">Auto (green / amber / red by usage)</option>
+        <option value="coral">Coral</option>
+        <option value="amber">Amber</option>
+        <option value="mint">Mint</option>
+        <option value="sky">Sky</option>
+        <option value="lilac">Lilac</option>
+      </select>
+      <div class="hint">Fixed accent for all usage numbers and bars, or Auto for usage-based coloring. Takes effect immediately on Save.</div>
+      <label class="row"><input type="checkbox" x-model="settings.usageShowConsumed">Show consumed % (instead of remaining)</label>
+      <div class="hint">Off: numbers show how much quota is left. On: how much has been used (e.g. 20% used shows 20%).</div>
       <label>Timezone</label>
       <select x-model.number="settings.tzMinutes">
         <template x-for="tz in tzZones()" :key="tz.min">

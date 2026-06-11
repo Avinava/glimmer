@@ -23,7 +23,7 @@
 #include "config.h"
 #include "weather.h"
 #include "weather_icons.h"
-#include <ESP8266WiFi.h>
+#include "compat.h"
 #include <time.h>
 #include <math.h>
 
@@ -59,7 +59,10 @@ static void clockGeom() {
 static void paintHH(int hh) {
     clockGeom();
     char b[4]; snprintf(b, sizeof(b), "%02d", hh);
-    tft.fillRect(s_hhX, 6, s_digitW * 2, 86, Theme::BG);
+    // Clear with a small margin (left + vertical) so anti-aliased glyph edges
+    // never leave stale pixels; stop exactly at the colon on the right.
+    int x0 = s_hhX - 4; if (x0 < 0) x0 = 0;
+    tft.fillRect(x0, 4, s_colonX - x0, 88, Theme::BG);
     Display::useFont("VT323-86");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::INK, Theme::BG);
@@ -77,7 +80,10 @@ static void paintColon() {
 static void paintMM(int mm) {
     clockGeom();
     char b[4]; snprintf(b, sizeof(b), "%02d", mm);
-    tft.fillRect(s_mmX, 6, s_digitW * 2, 86, Theme::BG);
+    // Clear with margin on both sides + vertical slack so glyph edges leave no
+    // stale pixels when a digit changes. The left margin stays right of the
+    // colon (s_mmX is colon-width past s_colonX), so the colon is untouched.
+    tft.fillRect(s_mmX - 4, 4, s_digitW * 2 + 8, 88, Theme::BG);
     Display::useFont("VT323-86");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::AMBER, Theme::BG);
@@ -144,20 +150,37 @@ static void paintMeter(int y, const char* tag, uint16_t tagColor,
     tft.drawString(val, SCREEN_W - 10, y);
 }
 
-static void paintCL(float cl) {
-    char buf[8];
-    if (cl >= 0) snprintf(buf, sizeof(buf), "%.0f%%", cl);
-    else         snprintf(buf, sizeof(buf), "--");
-    paintMeter(114, "CL", Theme::CORAL, cl < 0 ? 0 : cl,
-               Display::usageColor(cl), buf);
+// One dashboard meter row: label + bar + value.
+struct MeterRow { const char* tag; uint16_t color; float pct; };
+
+// Decide what the two meter rows show.
+//   Codex configured     → row1 = Claude (hero metric), row2 = Codex.
+//   No Codex configured  → show both Claude windows instead of an empty Codex
+//                          meter: row1 = weekly ("7D"), row2 = 5-hour ("5H").
+static void computeMeters(const ChannelCtx& ctx, MeterRow& r1, MeterRow& r2) {
+    const float session = ctx.claude ? ctx.claude->sessionPct : -1.f;
+    const float weekly  = ctx.claude ? ctx.claude->weeklyPct  : -1.f;
+    const bool codexCfg = ctx.settings && !ctx.settings->codexToken.isEmpty();
+    if (codexCfg) {
+        r1 = { "CL", Theme::CORAL,
+               ctx.settings->claudeWeeklyHero ? weekly : session };
+        const float cx = ctx.codex
+            ? (ctx.settings->codexWeeklyHero ? ctx.codex->secondaryPct
+                                             : ctx.codex->primaryPct)
+            : -1.f;
+        r2 = { "CX", Theme::LILAC, cx };
+    } else {
+        r1 = { "7D", Theme::CORAL, weekly };
+        r2 = { "5H", Theme::CORAL, session };
+    }
 }
 
-static void paintCX(float cx) {
+static void paintMeterRow(int y, const MeterRow& r) {
     char buf[8];
-    if (cx >= 0) snprintf(buf, sizeof(buf), "%.0f%%", cx);
-    else         snprintf(buf, sizeof(buf), "--");
-    paintMeter(132, "CX", Theme::LILAC, cx < 0 ? 0 : cx,
-               Display::usageColor(cx), buf);
+    if (r.pct >= 0) snprintf(buf, sizeof(buf), "%.0f%%", r.pct);
+    else            snprintf(buf, sizeof(buf), "--");
+    paintMeter(y, r.tag, r.color, r.pct < 0 ? 0 : r.pct,
+               Display::usageColor(r.pct), buf);
 }
 
 static void paintHourStrip(int curHour) {
@@ -225,10 +248,9 @@ void chHomeDraw(const ChannelCtx& ctx) {
     Display::dotsDivider(10, 108, SCREEN_W - 20);
 
     // AI meters
-    float cl = ctx.claude ? (ctx.settings->claudeWeeklyHero ? ctx.claude->weeklyPct : ctx.claude->sessionPct) : -1.f;
-    float cx = ctx.codex  ? (ctx.settings->codexWeeklyHero  ? ctx.codex->secondaryPct : ctx.codex->primaryPct) : -1.f;
-    paintCL(cl);
-    paintCX(cx);
+    MeterRow r1, r2; computeMeters(ctx, r1, r2);
+    paintMeterRow(114, r1);
+    paintMeterRow(132, r2);
 
     Display::dotsDivider(10, 152, SCREEN_W - 20);
 
@@ -249,8 +271,8 @@ void chHomeDraw(const ChannelCtx& ctx) {
 
     // ── Seed cache ──
     s_hh = tmv.tm_hour; s_mm = tmv.tm_min; s_dayHour = tmv.tm_hour;
-    s_cl = (cl < 0) ? -2.f : cl;
-    s_cx = (cx < 0) ? -2.f : cx;
+    s_cl = (r1.pct < 0) ? -2.f : r1.pct;
+    s_cx = (r2.pct < 0) ? -2.f : r2.pct;
     if (w && w->valid) { s_tempC = w->tempC; s_code = w->code; }
     else               { s_tempC = -999.f; s_code = 255; }
 }
@@ -286,10 +308,9 @@ void chHomeTick(const ChannelCtx& ctx) {
     }
 
     // AI meters — hysteresis on ±0.4% so noise doesn't thrash
-    const float cl = ctx.claude ? (ctx.settings->claudeWeeklyHero ? ctx.claude->weeklyPct : ctx.claude->sessionPct) : -1.f;
-    const float cx = ctx.codex  ? (ctx.settings->codexWeeklyHero  ? ctx.codex->secondaryPct : ctx.codex->primaryPct) : -1.f;
-    float cl_eff = (cl < 0) ? -2.f : cl;
-    float cx_eff = (cx < 0) ? -2.f : cx;
-    if (fabsf(cl_eff - s_cl) > 0.4f) { paintCL(cl); s_cl = cl_eff; }
-    if (fabsf(cx_eff - s_cx) > 0.4f) { paintCX(cx); s_cx = cx_eff; }
+    MeterRow r1, r2; computeMeters(ctx, r1, r2);
+    float v1 = (r1.pct < 0) ? -2.f : r1.pct;
+    float v2 = (r2.pct < 0) ? -2.f : r2.pct;
+    if (fabsf(v1 - s_cl) > 0.4f) { paintMeterRow(114, r1); s_cl = v1; }
+    if (fabsf(v2 - s_cx) > 0.4f) { paintMeterRow(132, r2); s_cx = v2; }
 }

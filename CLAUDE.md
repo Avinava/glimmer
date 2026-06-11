@@ -6,14 +6,31 @@ factual.
 
 ## Hardware & build
 
-- **Target**: GeekMagic SmallTV-Ultra. ESP8266, 4 MB flash, ST7789
-  240×240 LCD. Backlight on GPIO5 is **active-low PWM** (`analogWrite 0` = full bright).
-- **PlatformIO**: `pio run -e nodemcuv2` for firmware,
-  `pio run -e nodemcuv2 -t buildfs` for LittleFS image (`data/` → `/`).
-  Version: `-D FW_VERSION` in `platformio.ini`.
-- **mDNS**: `glimmer.local`.
-- **No PSRAM, ~30 KB free heap** at idle. Don't try to allocate a full
-  240×240 16bpp framebuffer (~115 KB).
+Two targets. The ESP32 port lives behind `#if defined(ESP32)`; keep the
+ESP8266 build working when touching shared code (verify both compile).
+
+**ESP8266 — GeekMagic SmallTV-Ultra (`-e nodemcuv2`, original target)**
+
+- ESP8266, 4 MB flash, ST7789 240×240 LCD. Backlight on GPIO5 is
+  **active-low PWM** (`analogWrite 0` = full bright).
+- `pio run -e nodemcuv2` (firmware), `pio run -e nodemcuv2 -t buildfs`
+  (LittleFS image, `data/` → `/`).
+- **No PSRAM, ~30 KB free heap** at idle. Don't allocate a full 240×240
+  16bpp framebuffer (~115 KB). BearSSL TLS is heap-tight (see api.cpp).
+
+**ESP32 — "Cheap Yellow Display" / ESP32-2432S028R (`-e cyd`)**
+
+- ESP32-WROOM-32, 4 MB flash, ILI9341 **320×240 landscape**
+  (`setRotation(1)`), backlight **active-high PWM on GPIO21**. `huge_app.csv`
+  partitions. TLS via `WiFiClientSecure` (mbedTLS). USB is data-wired:
+  `pio run -e cyd -t upload` / `-t uploadfs` flash directly over USB.
+- Platform differences are abstracted in `src/core/compat.h` (WiFi / mDNS /
+  heap helpers). WebServer/HTTPClient/TLS includes stay in the files that
+  need them (web.*, api.cpp, weather.cpp) — pulling WebServer in everywhere
+  clashes with TFT_eSPI's `fs::FS` on ESP8266.
+
+- **PlatformIO**: `-D FW_VERSION` per env in `platformio.ini`. **mDNS**:
+  `glimmer.local` (may not resolve on every LAN — use the device IP).
 
 ## OTA flash workflow
 

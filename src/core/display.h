@@ -11,6 +11,8 @@ namespace Display {
     void backlightOn();                            // full bright
     void backlightOff();
     void setInvert(bool on);                       // toggle ST7789 INVON/INVOFF at runtime
+    void setHighlight(uint16_t c);                 // global usage accent (0 = auto/usage-based)
+    void setUsageConsumed(bool on);                // false = values are remaining %, true = consumed %
 
     // High-level scenes
     void drawSplash(const char* line);             // animated startup screen

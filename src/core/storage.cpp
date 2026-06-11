@@ -37,6 +37,8 @@ Settings Storage::load() {
     s.claudeWeeklyHero = doc["claude_weekly_hero"] | false;
     s.codexWeeklyHero  = doc["codex_weekly_hero"]  | false;
     s.invertDisplay = doc["invert_display"] | true;
+    s.highlightColor = doc["highlight_color"] | "auto";
+    s.usageShowConsumed = doc["usage_consumed"] | false;
     s.nightDim      = doc["night_dim"]      | false;
     s.nightStart    = doc["night_start"]    | 22;
     s.nightEnd      = doc["night_end"]      | 7;
@@ -75,6 +77,8 @@ bool Storage::save(const Settings& s) {
     doc["claude_weekly_hero"] = s.claudeWeeklyHero;
     doc["codex_weekly_hero"]  = s.codexWeeklyHero;
     doc["invert_display"]= s.invertDisplay;
+    doc["highlight_color"] = s.highlightColor;
+    doc["usage_consumed"] = s.usageShowConsumed;
     doc["night_dim"]    = s.nightDim;
     doc["night_start"]  = s.nightStart;
     doc["night_end"]    = s.nightEnd;

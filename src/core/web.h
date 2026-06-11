@@ -1,5 +1,12 @@
 #pragma once
-#include <ESP8266WebServer.h>
+#include "compat.h"
+#if defined(ESP32)
+  #include <WebServer.h>
+  using WebServerClass = WebServer;
+#else
+  #include <ESP8266WebServer.h>
+  using WebServerClass = ESP8266WebServer;
+#endif
 #include "storage.h"
 
 namespace Web {
