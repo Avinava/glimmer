@@ -397,6 +397,12 @@ void Display::dotsDivider(int x, int y, int w) {
     for (int i = 0; i < w; i += 4) tft.drawPixel(x + i, y, Theme::LINE);
 }
 
+void Display::loadingDots(int x, int y, int litIndex, uint16_t accent, int count) {
+    int lit = ((litIndex % count) + count) % count;   // safe for negatives
+    for (int i = 0; i < count; i++)
+        tft.fillRect(x + i * 9, y, 6, 6, i == lit ? accent : Theme::LINE);
+}
+
 // Channel theme color — defined here (alongside Display because that's where it's
 // used most) but declared in theme.h so other modules can call it.
 uint16_t Theme::channelColor(const char* name) {

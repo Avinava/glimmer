@@ -35,6 +35,12 @@ struct CodexData {
     bool    hourlyValid[24] = {};
 };
 
+// "Loading" = configured but never successfully fetched, with no error yet.
+// (Both channels are only enabled once configured, so this can't false-positive
+// on an unconfigured slot.) A recorded error takes precedence over loading.
+inline bool claudeLoading(const ClaudeData& d) { return !d.valid && !d.err[0]; }
+inline bool codexLoading (const CodexData&  d) { return !d.valid && !d.err[0]; }
+
 namespace Api {
     // The Codex percentage to show as the hero/summary metric. The weekly
     // (primary) window unless there are two *real* rate-limit windows and the

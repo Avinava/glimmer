@@ -16,6 +16,7 @@ static float s_credits = -2.f;
 static char  s_rightLine[16] = "";
 static char  s_secSub[24] = "";
 static int   s_sparkHour = -1;
+static int   s_loadDot = -1;
 
 bool chCodexEnabled(const ChannelCtx& ctx) {
     return ctx.settings && ctx.settings->showCodex && !ctx.settings->codexToken.isEmpty();
@@ -150,7 +151,9 @@ void chCodexDraw(const ChannelCtx& ctx) {
         Display::useFont("Silkscreen-16");
         tft.setTextDatum(MC_DATUM);
         tft.setTextColor(Theme::MUTED, Theme::BG);
-        tft.drawString("No Codex data", SCREEN_W/2, 110);
+        tft.drawString("Loading", SCREEN_W/2, 100);
+        Display::loadingDots(SCREEN_W/2 - 21, 128, 0, Theme::LILAC);
+        s_loadDot = 0;
         return;
     }
 
@@ -195,7 +198,15 @@ void chCodexDraw(const ChannelCtx& ctx) {
 void chCodexTick(const ChannelCtx& ctx) {
     if (!ctx.codex) return;
     const CodexData& d = *ctx.codex;
-    if (d.err[0] || !d.valid) return;
+    if (d.err[0]) return;
+    if (!d.valid) {                       // loading — sweep the chase dots
+        int lit = (ctx.now_ms / 150) % 5;
+        if (lit != s_loadDot) {
+            Display::loadingDots(SCREEN_W/2 - 21, 128, lit, Theme::LILAC);
+            s_loadDot = lit;
+        }
+        return;
+    }
 
     // formatCountdown() has minute granularity, so only re-derive (and heap-
     // allocate) the countdown strings when the wall-clock minute rolls over.

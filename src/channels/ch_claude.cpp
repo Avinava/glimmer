@@ -22,6 +22,7 @@ static char   s_heroReset[12] = "";
 static char   s_secSub[24]    = "";
 static float  s_modelPct[3]       = {-2.f, -2.f, -2.f};
 static char   s_modelLabel[3][12] = {"", "", ""};
+static int    s_loadDot = -1;
 
 bool chClaudeEnabled(const ChannelCtx& ctx) {
     return ctx.settings && ctx.settings->showClaude && !ctx.settings->claudeKey.isEmpty();
@@ -141,6 +142,17 @@ void chClaudeDraw(const ChannelCtx& ctx) {
         s_heroReset[0] = 0; s_secSub[0] = 0;
         return;
     }
+    if (!d.valid) {
+        Display::useFont("Silkscreen-16");
+        tft.setTextDatum(MC_DATUM);
+        tft.setTextColor(Theme::MUTED, Theme::BG);
+        tft.drawString("Loading", SCREEN_W/2, 100);
+        Display::loadingDots(SCREEN_W/2 - 21, 128, 0, Theme::CORAL);
+        s_loadDot = 0;
+        s_heroPct = -2.f; s_secPct = -2.f;
+        s_heroReset[0] = 0; s_secSub[0] = 0;
+        return;
+    }
 
     const bool swapped = ctx.settings->claudeWeeklyHero;
     const float heroPct  = swapped ? d.weeklyPct   : d.sessionPct;
@@ -170,6 +182,14 @@ void chClaudeTick(const ChannelCtx& ctx) {
     if (!ctx.claude) return;
     const ClaudeData& d = *ctx.claude;
     if (d.err[0]) return;
+    if (!d.valid) {                       // loading — sweep the chase dots
+        int lit = (ctx.now_ms / 150) % 5;
+        if (lit != s_loadDot) {
+            Display::loadingDots(SCREEN_W/2 - 21, 128, lit, Theme::CORAL);
+            s_loadDot = lit;
+        }
+        return;
+    }
 
     // Countdown strings only change on a minute boundary; recompute (and
     // heap-allocate) them only then, not on every 5 Hz tick.

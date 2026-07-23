@@ -19,6 +19,7 @@ static float s_cl = -2.f, s_cx = -2.f;
 static float s_credits = -2.f;
 static char  s_clReset[12] = "";
 static char  s_cxReset[12] = "";
+static int   s_loadDot = -1;
 
 bool chAiDashEnabled(const ChannelCtx& ctx) {
     return ctx.settings && ctx.settings->showAiDash
@@ -26,30 +27,38 @@ bool chAiDashEnabled(const ChannelCtx& ctx) {
         && !ctx.settings->codexToken.isEmpty();
 }
 
-static void paintCLBlock(float cl) {
+static void paintCLBlock(float cl, bool loading, int lit) {
     uint16_t uc = Display::usageColor(cl);
     tft.fillRect(10, 48, 100, 28, Theme::BG);
-    char buf[8];
-    if (cl < 0) snprintf(buf, sizeof(buf), "--%%");
-    else        snprintf(buf, sizeof(buf), "%.0f%%", cl);
-    Display::useFont("VT323-32");
-    tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(uc, Theme::BG);
-    tft.drawString(buf, 12, 50);
-    Display::pixelBar(12, 92, SCREEN_W - 24, 10, cl < 0 ? 0 : cl, uc);
+    if (loading) {
+        Display::loadingDots(14, 58, lit, Theme::CORAL, 3);
+    } else {
+        char buf[8];
+        if (cl < 0) snprintf(buf, sizeof(buf), "--%%");
+        else        snprintf(buf, sizeof(buf), "%.0f%%", cl);
+        Display::useFont("VT323-32");
+        tft.setTextDatum(TL_DATUM);
+        tft.setTextColor(uc, Theme::BG);
+        tft.drawString(buf, 12, 50);
+    }
+    Display::pixelBar(12, 92, SCREEN_W - 24, 10, (loading || cl < 0) ? 0 : cl, uc);
 }
 
-static void paintCXBlock(float cx) {
+static void paintCXBlock(float cx, bool loading, int lit) {
     uint16_t uc = Display::usageColor(cx);
     tft.fillRect(SCREEN_W - 110, 48, 100, 28, Theme::BG);
-    char buf[8];
-    if (cx < 0) snprintf(buf, sizeof(buf), "--%%");
-    else        snprintf(buf, sizeof(buf), "%.0f%%", cx);
-    Display::useFont("VT323-32");
-    tft.setTextDatum(TR_DATUM);
-    tft.setTextColor(uc, Theme::BG);
-    tft.drawString(buf, SCREEN_W - 12, 50);
-    Display::pixelBar(12, 110, SCREEN_W - 24, 10, cx < 0 ? 0 : cx, uc);
+    if (loading) {
+        Display::loadingDots(SCREEN_W - 12 - 24, 58, lit, Theme::LILAC, 3);
+    } else {
+        char buf[8];
+        if (cx < 0) snprintf(buf, sizeof(buf), "--%%");
+        else        snprintf(buf, sizeof(buf), "%.0f%%", cx);
+        Display::useFont("VT323-32");
+        tft.setTextDatum(TR_DATUM);
+        tft.setTextColor(uc, Theme::BG);
+        tft.drawString(buf, SCREEN_W - 12, 50);
+    }
+    Display::pixelBar(12, 110, SCREEN_W - 24, 10, (loading || cx < 0) ? 0 : cx, uc);
 }
 
 static void paintResetRow(int y, const char* tag, uint16_t tagColor, time_t resetEpoch) {
@@ -89,8 +98,12 @@ void chAiDashDraw(const ChannelCtx& ctx) {
     tft.drawString("CODEX", SCREEN_W - 12, 32);
 
     // Hero %s + segmented bars (via helpers so tick can reuse)
-    paintCLBlock(cl);
-    paintCXBlock(cx);
+    const bool clLoading = ctx.claude && claudeLoading(*ctx.claude);
+    const bool cxLoading = ctx.codex  && codexLoading(*ctx.codex);
+    const int lit = (ctx.now_ms / 150) % 3;
+    paintCLBlock(cl, clLoading, lit);
+    paintCXBlock(cx, cxLoading, lit);
+    s_loadDot = (clLoading || cxLoading) ? lit : -1;
 
     Display::dotsDivider(12, 130, SCREEN_W - 24);
 
@@ -114,13 +127,27 @@ void chAiDashDraw(const ChannelCtx& ctx) {
 }
 
 void chAiDashTick(const ChannelCtx& ctx) {
+    const bool clLoading = ctx.claude && claudeLoading(*ctx.claude);
+    const bool cxLoading = ctx.codex  && codexLoading(*ctx.codex);
     const float cl = ctx.claude ? (ctx.settings->claudeWeeklyHero ? ctx.claude->weeklyPct : ctx.claude->sessionPct) : -1.f;
     const float cx = ctx.codex  ? Api::codexHeroPct(*ctx.settings, *ctx.codex) : -1.f;
-    float cl_eff = (cl < 0) ? -2.f : cl;
-    float cx_eff = (cx < 0) ? -2.f : cx;
+    const int lit = (ctx.now_ms / 150) % 3;
 
-    if (fabsf(cl_eff - s_cl) > 0.4f) { paintCLBlock(cl); s_cl = cl_eff; }
-    if (fabsf(cx_eff - s_cx) > 0.4f) { paintCXBlock(cx); s_cx = cx_eff; }
+    if (clLoading) {
+        if (lit != s_loadDot) paintCLBlock(cl, true, lit);
+        s_cl = -2.f;                                  // force repaint when data lands
+    } else {
+        float cl_eff = (cl < 0) ? -2.f : cl;
+        if (fabsf(cl_eff - s_cl) > 0.4f) { paintCLBlock(cl, false, lit); s_cl = cl_eff; }
+    }
+    if (cxLoading) {
+        if (lit != s_loadDot) paintCXBlock(cx, true, lit);
+        s_cx = -2.f;
+    } else {
+        float cx_eff = (cx < 0) ? -2.f : cx;
+        if (fabsf(cx_eff - s_cx) > 0.4f) { paintCXBlock(cx, false, lit); s_cx = cx_eff; }
+    }
+    if (clLoading || cxLoading) s_loadDot = lit;
 
     // Credits — repaint just the right meta in the status bar
     const float credits = ctx.codex && ctx.codex->creditsRemain >= 0 ? ctx.codex->creditsRemain : -1.f;

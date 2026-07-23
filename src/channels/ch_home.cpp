@@ -32,6 +32,7 @@ extern WeatherData* weatherSnapshotPtr();
 // ── File-static cache so tick() can diff vs last paint ──
 static int     s_hh = -1, s_mm = -1, s_dayHour = -1;
 static float   s_cl = -2.f, s_cx = -2.f;
+static int     s_loadDot = -1;
 static float   s_tempC = -999.f;
 static uint8_t s_code = 255;
 // Clock x-geometry cached on first paint
@@ -144,7 +145,20 @@ static void paintMeter(int y, const char* tag, uint16_t tagColor,
     tft.drawString(val, SCREEN_W - 10, y);
 }
 
-static void paintCL(float cl) {
+// Loading variant: tag on the left, a compact 3-dot chaser where the value
+// would be. No bar — reads clearly as "not here yet".
+static void paintMeterLoading(int y, const char* tag, uint16_t tagColor,
+                              int lit, uint16_t accent) {
+    tft.fillRect(0, y, SCREEN_W, 16, Theme::BG);
+    Display::useFont("Silkscreen-12");
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextColor(tagColor, Theme::BG);
+    tft.drawString(tag, 10, y);
+    Display::loadingDots(SCREEN_W - 10 - 24, y + 4, lit, accent, 3);
+}
+
+static void paintCL(float cl, bool loading, int lit) {
+    if (loading) { paintMeterLoading(114, "CL", Theme::CORAL, lit, Theme::CORAL); return; }
     char buf[8];
     if (cl >= 0) snprintf(buf, sizeof(buf), "%.0f%%", cl);
     else         snprintf(buf, sizeof(buf), "--");
@@ -152,7 +166,8 @@ static void paintCL(float cl) {
                Display::usageColor(cl), buf);
 }
 
-static void paintCX(float cx) {
+static void paintCX(float cx, bool loading, int lit) {
+    if (loading) { paintMeterLoading(132, "CX", Theme::LILAC, lit, Theme::LILAC); return; }
     char buf[8];
     if (cx >= 0) snprintf(buf, sizeof(buf), "%.0f%%", cx);
     else         snprintf(buf, sizeof(buf), "--");
@@ -224,11 +239,16 @@ void chHomeDraw(const ChannelCtx& ctx) {
 
     Display::dotsDivider(10, 108, SCREEN_W - 20);
 
-    // AI meters
+    // AI meters — "loading" only for a *configured* side (an unconfigured slot
+    // stays valid=false/err="" and must read as "--", not a perpetual loader).
+    const bool clLoading = ctx.claude && !ctx.settings->claudeKey.isEmpty()   && claudeLoading(*ctx.claude);
+    const bool cxLoading = ctx.codex  && !ctx.settings->codexToken.isEmpty()  && codexLoading(*ctx.codex);
     float cl = ctx.claude ? (ctx.settings->claudeWeeklyHero ? ctx.claude->weeklyPct : ctx.claude->sessionPct) : -1.f;
     float cx = ctx.codex  ? Api::codexHeroPct(*ctx.settings, *ctx.codex) : -1.f;
-    paintCL(cl);
-    paintCX(cx);
+    const int lit = (ctx.now_ms / 150) % 3;
+    paintCL(cl, clLoading, lit);
+    paintCX(cx, cxLoading, lit);
+    s_loadDot = (clLoading || cxLoading) ? lit : -1;
 
     Display::dotsDivider(10, 152, SCREEN_W - 20);
 
@@ -285,11 +305,27 @@ void chHomeTick(const ChannelCtx& ctx) {
         }
     }
 
-    // AI meters — hysteresis on ±0.4% so noise doesn't thrash
+    // AI meters — chase dots while a side is still loading; else hysteresis on
+    // ±0.4% so noise doesn't thrash.
+    const bool clLoading = ctx.claude && !ctx.settings->claudeKey.isEmpty()  && claudeLoading(*ctx.claude);
+    const bool cxLoading = ctx.codex  && !ctx.settings->codexToken.isEmpty() && codexLoading(*ctx.codex);
     const float cl = ctx.claude ? (ctx.settings->claudeWeeklyHero ? ctx.claude->weeklyPct : ctx.claude->sessionPct) : -1.f;
     const float cx = ctx.codex  ? Api::codexHeroPct(*ctx.settings, *ctx.codex) : -1.f;
-    float cl_eff = (cl < 0) ? -2.f : cl;
-    float cx_eff = (cx < 0) ? -2.f : cx;
-    if (fabsf(cl_eff - s_cl) > 0.4f) { paintCL(cl); s_cl = cl_eff; }
-    if (fabsf(cx_eff - s_cx) > 0.4f) { paintCX(cx); s_cx = cx_eff; }
+    const int lit = (ctx.now_ms / 150) % 3;
+
+    if (clLoading) {
+        if (lit != s_loadDot) paintCL(cl, true, lit);
+        s_cl = -2.f;                                  // force repaint when data lands
+    } else {
+        float cl_eff = (cl < 0) ? -2.f : cl;
+        if (fabsf(cl_eff - s_cl) > 0.4f) { paintCL(cl, false, lit); s_cl = cl_eff; }
+    }
+    if (cxLoading) {
+        if (lit != s_loadDot) paintCX(cx, true, lit);
+        s_cx = -2.f;
+    } else {
+        float cx_eff = (cx < 0) ? -2.f : cx;
+        if (fabsf(cx_eff - s_cx) > 0.4f) { paintCX(cx, false, lit); s_cx = cx_eff; }
+    }
+    if (clLoading || cxLoading) s_loadDot = lit;
 }

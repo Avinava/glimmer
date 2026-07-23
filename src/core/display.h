@@ -71,4 +71,12 @@ namespace Display {
 
     // 1-px dotted divider line (4 px on, 1 px off).
     void dotsDivider(int x, int y, int w);
+
+    // Animated "loading" chase dots (mirrors the WiFi-connecting screen).
+    //   x, y:      top-left of the dot row (6-px dots on a 9-px pitch)
+    //   litIndex:  which dot is lit; caller advances it (e.g. now_ms/150).
+    //              Reduced mod `count` internally.
+    //   accent:    lit-dot color; unlit dots use Theme::LINE.
+    //   count:     number of dots (default 5).
+    void loadingDots(int x, int y, int litIndex, uint16_t accent, int count = 5);
 }
