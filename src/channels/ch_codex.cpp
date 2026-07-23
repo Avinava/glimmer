@@ -21,6 +21,22 @@ bool chCodexEnabled(const ChannelCtx& ctx) {
     return ctx.settings && ctx.settings->showCodex && !ctx.settings->codexToken.isEmpty();
 }
 
+// Human label for a rate-limit window from its length in seconds.
+static void windowLabel(long sec, char* buf, size_t n) {
+    if      (sec >= 6L * 24 * 3600 - 3600) snprintf(buf, n, "WEEKLY");
+    else if (sec >= 20L * 3600)            snprintf(buf, n, "DAILY");
+    else if (sec >= 3600)                  snprintf(buf, n, "%ldH", sec / 3600);
+    else if (sec > 0)                      snprintf(buf, n, "%ldM", sec / 60);
+    else                                   buf[0] = '\0';
+}
+
+// Label for the secondary row: a per-model tag (e.g. "SPARK") if present,
+// otherwise the window length.
+static void secondaryLabel(const CodexData& d, long winSec, char* buf, size_t n) {
+    if (d.secondaryTag[0]) { strncpy(buf, d.secondaryTag, n - 1); buf[n - 1] = '\0'; }
+    else                     windowLabel(winSec, buf, n);
+}
+
 static void paintRightStack(const CodexData& d, time_t heroReset) {
     tft.fillRect(SCREEN_W - 110, 26, 100, 28, Theme::BG);
     if (d.creditsRemain >= 0) {
@@ -138,24 +154,31 @@ void chCodexDraw(const ChannelCtx& ctx) {
         return;
     }
 
-    const bool swapped = ctx.settings->codexWeeklyHero;
-    const float heroPct  = swapped ? d.secondaryPct   : d.primaryPct;
-    const float secPct   = swapped ? d.primaryPct     : d.secondaryPct;
-    const time_t heroRst = swapped ? d.secondaryReset : d.primaryReset;
-    const time_t secRst  = swapped ? d.primaryReset   : d.secondaryReset;
+    // The weekly window is the primary now that Codex dropped the 5-hour cap.
+    // Only swap hero/secondary when there are two *real* rate-limit windows; a
+    // per-model additional limit (secondaryTag set) never takes the hero slot.
+    const bool realSecondary = d.secondaryPct >= 0 && d.secondaryTag[0] == '\0';
+    const bool swapped = realSecondary && ctx.settings->codexWeeklyHero;
+    const float heroPct  = swapped ? d.secondaryPct    : d.primaryPct;
+    const float secPct   = swapped ? d.primaryPct      : d.secondaryPct;
+    const time_t heroRst = swapped ? d.secondaryReset  : d.primaryReset;
+    const time_t secRst  = swapped ? d.primaryReset    : d.secondaryReset;
+    const long  heroWin  = swapped ? d.secondaryWinSec : d.primaryWinSec;
+    const long  secWin   = swapped ? d.primaryWinSec   : d.secondaryWinSec;
 
+    char heroLbl[12]; windowLabel(heroWin, heroLbl, sizeof(heroLbl));
     Display::useFont("Silkscreen-12");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::MUTED, Theme::BG);
-    tft.drawString(swapped ? "WEEKLY" : "PRIMARY", 12, 32);
+    tft.drawString(heroLbl, 12, 32);
 
     paintRightStack(d, heroRst);
     paintPrimaryHero(heroPct);
 
     Display::dotsDivider(12, 146, SCREEN_W - 24);
 
-    const char* secLabel = swapped ? "PRIMARY" : "WEEKLY";
-    paintSecondary(secPct, secRst, secLabel);
+    char secLbl[16]; secondaryLabel(d, secWin, secLbl, sizeof(secLbl));
+    paintSecondary(secPct, secRst, secLbl);
 
     Display::dotsDivider(12, 170, SCREEN_W - 24);
 
@@ -174,11 +197,13 @@ void chCodexTick(const ChannelCtx& ctx) {
     const CodexData& d = *ctx.codex;
     if (d.err[0] || !d.valid) return;
 
-    const bool swapped = ctx.settings->codexWeeklyHero;
-    const float heroPct  = swapped ? d.secondaryPct   : d.primaryPct;
-    const float secPct   = swapped ? d.primaryPct     : d.secondaryPct;
-    const time_t heroRst = swapped ? d.secondaryReset : d.primaryReset;
-    const time_t secRst  = swapped ? d.primaryReset   : d.secondaryReset;
+    const bool realSecondary = d.secondaryPct >= 0 && d.secondaryTag[0] == '\0';
+    const bool swapped = realSecondary && ctx.settings->codexWeeklyHero;
+    const float heroPct  = swapped ? d.secondaryPct    : d.primaryPct;
+    const float secPct   = swapped ? d.primaryPct      : d.secondaryPct;
+    const time_t heroRst = swapped ? d.secondaryReset  : d.primaryReset;
+    const time_t secRst  = swapped ? d.primaryReset    : d.secondaryReset;
+    const long  secWin   = swapped ? d.primaryWinSec   : d.secondaryWinSec;
 
     // Right stack — repaint when credits change OR countdown text changes
     bool rightDirty = false;
@@ -204,8 +229,8 @@ void chCodexTick(const ChannelCtx& ctx) {
         if (strcmp(fresh.c_str(), s_secSub) != 0) secDirty = true;
     }
     if (secDirty) {
-        const char* secLabel = swapped ? "PRIMARY" : "WEEKLY";
-        paintSecondary(secPct, secRst, secLabel);
+        char secLbl[16]; secondaryLabel(d, secWin, secLbl, sizeof(secLbl));
+        paintSecondary(secPct, secRst, secLbl);
         s_secPct = sp;
     }
 

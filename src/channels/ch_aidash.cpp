@@ -75,7 +75,7 @@ void chAiDashDraw(const ChannelCtx& ctx) {
     Display::statusBar("AI today", rmeta, Theme::INK_DIM);
 
     const float cl = ctx.claude ? (ctx.settings->claudeWeeklyHero ? ctx.claude->weeklyPct : ctx.claude->sessionPct) : -1;
-    const float cx = ctx.codex  ? (ctx.settings->codexWeeklyHero  ? ctx.codex->secondaryPct : ctx.codex->primaryPct) : -1;
+    const float cx = ctx.codex  ? Api::codexHeroPct(*ctx.settings, *ctx.codex) : -1;
 
     // ── Two big numbers side by side, design-true VLW typography ──
     Display::useFont("Silkscreen-12");
@@ -114,7 +114,7 @@ void chAiDashDraw(const ChannelCtx& ctx) {
 
 void chAiDashTick(const ChannelCtx& ctx) {
     const float cl = ctx.claude ? (ctx.settings->claudeWeeklyHero ? ctx.claude->weeklyPct : ctx.claude->sessionPct) : -1.f;
-    const float cx = ctx.codex  ? (ctx.settings->codexWeeklyHero  ? ctx.codex->secondaryPct : ctx.codex->primaryPct) : -1.f;
+    const float cx = ctx.codex  ? Api::codexHeroPct(*ctx.settings, *ctx.codex) : -1.f;
     float cl_eff = (cl < 0) ? -2.f : cl;
     float cx_eff = (cx < 0) ? -2.f : cx;
 

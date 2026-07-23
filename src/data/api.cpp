@@ -324,15 +324,47 @@ bool Api::fetchCodex(const Settings& s, CodexData& out) {
     if (deserializeJson(doc, body)) { snprintf(out.err, sizeof(out.err), "parse"); out.valid=false; return false; }
     body = String();
 
+    // Codex dropped the 5-hour window (2026-07): the API now returns a single
+    // weekly primary_window and a null secondary_window. Only the primary is
+    // required. When the secondary window is absent, fall back to the first
+    // per-model limit in additional_rate_limits (e.g. Codex-Spark) so the second
+    // row stays meaningful instead of blank.
     JsonVariant pw = doc["rate_limit"]["primary_window"];
-    JsonVariant sw = doc["rate_limit"]["secondary_window"];
-    if (pw.isNull() || sw.isNull()) { snprintf(out.err, sizeof(out.err), "no data"); out.valid=false; return false; }
+    if (pw.isNull()) { snprintf(out.err, sizeof(out.err), "no data"); out.valid=false; return false; }
 
     auto rem = [](float u){ float v = 100.0f - u; if (v<0)v=0; if (v>100)v=100; return v; };
     out.primaryPct     = rem(pw["used_percent"].as<float>());
-    out.secondaryPct   = rem(sw["used_percent"].as<float>());
     out.primaryReset   = (time_t)pw["reset_at"].as<long>();
-    out.secondaryReset = (time_t)sw["reset_at"].as<long>();
+    out.primaryWinSec  = pw["limit_window_seconds"].as<long>();
+
+    out.secondaryTag[0] = '\0';
+    JsonVariant sw = doc["rate_limit"]["secondary_window"];
+    if (!sw.isNull()) {
+        out.secondaryPct    = rem(sw["used_percent"].as<float>());
+        out.secondaryReset  = (time_t)sw["reset_at"].as<long>();
+        out.secondaryWinSec = sw["limit_window_seconds"].as<long>();
+    } else {
+        out.secondaryPct = -1.0f; out.secondaryReset = 0; out.secondaryWinSec = 0;
+        for (JsonVariant a : doc["additional_rate_limits"].as<JsonArray>()) {
+            JsonVariant apw = a["rate_limit"]["primary_window"];
+            if (apw.isNull()) continue;
+            out.secondaryPct    = rem(apw["used_percent"].as<float>());
+            out.secondaryReset  = (time_t)apw["reset_at"].as<long>();
+            out.secondaryWinSec = apw["limit_window_seconds"].as<long>();
+            // Short tag from the last '-' segment of limit_name, uppercased.
+            const char* ln  = a["limit_name"] | "";
+            const char* seg = strrchr(ln, '-');
+            seg = seg ? seg + 1 : ln;
+            size_t j = 0;
+            for (; seg[j] && j < sizeof(out.secondaryTag) - 1; j++) {
+                char c = seg[j];
+                if (c >= 'a' && c <= 'z') c -= 32;
+                out.secondaryTag[j] = c;
+            }
+            out.secondaryTag[j] = '\0';
+            break;
+        }
+    }
 
     bool hasCredits = doc["credits"]["has_credits"] | false;
     if (hasCredits) {

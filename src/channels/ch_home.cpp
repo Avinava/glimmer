@@ -226,7 +226,7 @@ void chHomeDraw(const ChannelCtx& ctx) {
 
     // AI meters
     float cl = ctx.claude ? (ctx.settings->claudeWeeklyHero ? ctx.claude->weeklyPct : ctx.claude->sessionPct) : -1.f;
-    float cx = ctx.codex  ? (ctx.settings->codexWeeklyHero  ? ctx.codex->secondaryPct : ctx.codex->primaryPct) : -1.f;
+    float cx = ctx.codex  ? Api::codexHeroPct(*ctx.settings, *ctx.codex) : -1.f;
     paintCL(cl);
     paintCX(cx);
 
@@ -287,7 +287,7 @@ void chHomeTick(const ChannelCtx& ctx) {
 
     // AI meters — hysteresis on ±0.4% so noise doesn't thrash
     const float cl = ctx.claude ? (ctx.settings->claudeWeeklyHero ? ctx.claude->weeklyPct : ctx.claude->sessionPct) : -1.f;
-    const float cx = ctx.codex  ? (ctx.settings->codexWeeklyHero  ? ctx.codex->secondaryPct : ctx.codex->primaryPct) : -1.f;
+    const float cx = ctx.codex  ? Api::codexHeroPct(*ctx.settings, *ctx.codex) : -1.f;
     float cl_eff = (cl < 0) ? -2.f : cl;
     float cx_eff = (cx < 0) ? -2.f : cx;
     if (fabsf(cl_eff - s_cl) > 0.4f) { paintCL(cl); s_cl = cl_eff; }

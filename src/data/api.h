@@ -24,6 +24,10 @@ struct CodexData {
     float  secondaryPct   = -1.0f;
     time_t primaryReset   = 0;
     time_t secondaryReset = 0;
+    long   primaryWinSec   = 0;      // primary window length (s) → drives label
+    long   secondaryWinSec = 0;      // secondary window length (s) → drives label
+    char   secondaryTag[16] = "";    // non-empty when the secondary row comes from
+                                     // an additional model limit (e.g. "SPARK")
     float  creditsRemain  = -1.0f;
     bool   valid = false;
     char   err[24] = "";
@@ -32,6 +36,15 @@ struct CodexData {
 };
 
 namespace Api {
+    // The Codex percentage to show as the hero/summary metric. The weekly
+    // (primary) window unless there are two *real* rate-limit windows and the
+    // user promoted the secondary via codexWeeklyHero. A per-model additional
+    // limit (secondaryTag set) is never treated as the hero.
+    inline float codexHeroPct(const Settings& s, const CodexData& d) {
+        bool realSecondary = d.secondaryPct >= 0 && d.secondaryTag[0] == '\0';
+        return (realSecondary && s.codexWeeklyHero) ? d.secondaryPct : d.primaryPct;
+    }
+
     // Authenticates and pulls the org's usage. Updates the ClaudeData passed in.
     bool fetchClaude(const Settings& s, ClaudeData& out);
 
