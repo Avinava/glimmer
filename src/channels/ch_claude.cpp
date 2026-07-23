@@ -13,6 +13,7 @@
 #include "config.h"
 #include "layout.h"
 #include <math.h>
+#include <time.h>
 
 // ── tick() state cache (position-based, not source-based) ──
 static float  s_heroPct  = -2.f;
@@ -170,14 +171,23 @@ void chClaudeTick(const ChannelCtx& ctx) {
     const ClaudeData& d = *ctx.claude;
     if (d.err[0]) return;
 
+    // Countdown strings only change on a minute boundary; recompute (and
+    // heap-allocate) them only then, not on every 5 Hz tick.
+    time_t t = time(nullptr);
+    struct tm tm; localtime_r(&t, &tm);
+    static int s_cdMin = -1;
+    const bool minTick = (tm.tm_min != s_cdMin);
+
     const bool swapped = ctx.settings->claudeWeeklyHero;
     const float heroPct  = swapped ? d.weeklyPct   : d.sessionPct;
     const float secPct   = swapped ? d.sessionPct  : d.weeklyPct;
     const time_t heroRst = swapped ? d.weeklyReset : d.sessionReset;
     const time_t secRst  = swapped ? d.sessionReset: d.weeklyReset;
 
-    String fresh = (heroRst > 0) ? Api::formatCountdown(heroRst) : String("--");
-    if (strcmp(fresh.c_str(), s_heroReset) != 0) paintSessReset(heroRst);
+    if (minTick) {
+        String fresh = (heroRst > 0) ? Api::formatCountdown(heroRst) : String("--");
+        if (strcmp(fresh.c_str(), s_heroReset) != 0) paintSessReset(heroRst);
+    }
 
     float p = (heroPct < 0) ? -2.f : heroPct;
     if (fabsf(p - s_heroPct) > 0.4f) {
@@ -185,15 +195,22 @@ void chClaudeTick(const ChannelCtx& ctx) {
         s_heroPct = p;
     }
 
-    String subFresh;
-    if (secPct < 0) subFresh = "--";
-    else {
-        subFresh = String((int)secPct) + "%";
-        if (secRst > 0) subFresh += " \xC2\xB7 " + Api::formatCountdown(secRst);
+    // Secondary compact row — pct moves on refresh, countdown at minute ticks.
+    float sp = (secPct < 0) ? -2.f : secPct;
+    bool secDirty = fabsf(sp - s_secPct) > 0.4f;
+    if (!secDirty && minTick) {
+        String subFresh;
+        if (secPct < 0) subFresh = "--";
+        else {
+            subFresh = String((int)secPct) + "%";
+            if (secRst > 0) subFresh += " \xC2\xB7 " + Api::formatCountdown(secRst);
+        }
+        if (strcmp(subFresh.c_str(), s_secSub) != 0) secDirty = true;
     }
-    if (strcmp(subFresh.c_str(), s_secSub) != 0) {
+    if (secDirty) {
         const char* secLabel = swapped ? "5-HOUR WINDOW" : "WEEKLY";
         paintWeeklyCompact(secLabel, secPct, secRst);
+        s_secPct = sp;
     }
 
     bool modelDirty = false;
@@ -203,4 +220,6 @@ void chClaudeTick(const ChannelCtx& ctx) {
         if (strcmp(d.models[i].label, s_modelLabel[i]) != 0) modelDirty = true;
     }
     if (modelDirty) paintModelRows(d);
+
+    s_cdMin = tm.tm_min;
 }

@@ -12,6 +12,7 @@
 #include "config.h"
 #include "api.h"
 #include <math.h>
+#include <time.h>
 
 // tick cache
 static float s_cl = -2.f, s_cx = -2.f;
@@ -135,17 +136,24 @@ void chAiDashTick(const ChannelCtx& ctx) {
         s_credits = credits;
     }
 
-    // Reset countdowns — repaint only when text changes
-    time_t clReset = ctx.claude ? ctx.claude->sessionReset : 0;
-    time_t cxReset = ctx.codex  ? ctx.codex->primaryReset  : 0;
-    String clFresh = Api::formatCountdown(clReset);
-    String cxFresh = Api::formatCountdown(cxReset);
-    if (strcmp(clFresh.c_str(), s_clReset) != 0) {
-        paintResetRow(158, "CL", Theme::CORAL, clReset);
-        strncpy(s_clReset, clFresh.c_str(), sizeof(s_clReset) - 1);
-    }
-    if (strcmp(cxFresh.c_str(), s_cxReset) != 0) {
-        paintResetRow(174, "CX", Theme::LILAC, cxReset);
-        strncpy(s_cxReset, cxFresh.c_str(), sizeof(s_cxReset) - 1);
+    // Reset countdowns — text has minute granularity, so only recompute (and
+    // heap-allocate) the strings when the wall-clock minute rolls over.
+    time_t t = time(nullptr);
+    struct tm tm; localtime_r(&t, &tm);
+    static int s_cdMin = -1;
+    if (tm.tm_min != s_cdMin) {
+        s_cdMin = tm.tm_min;
+        time_t clReset = ctx.claude ? ctx.claude->sessionReset : 0;
+        time_t cxReset = ctx.codex  ? ctx.codex->primaryReset  : 0;
+        String clFresh = Api::formatCountdown(clReset);
+        String cxFresh = Api::formatCountdown(cxReset);
+        if (strcmp(clFresh.c_str(), s_clReset) != 0) {
+            paintResetRow(158, "CL", Theme::CORAL, clReset);
+            strncpy(s_clReset, clFresh.c_str(), sizeof(s_clReset) - 1);
+        }
+        if (strcmp(cxFresh.c_str(), s_cxReset) != 0) {
+            paintResetRow(174, "CX", Theme::LILAC, cxReset);
+            strncpy(s_cxReset, cxFresh.c_str(), sizeof(s_cxReset) - 1);
+        }
     }
 }

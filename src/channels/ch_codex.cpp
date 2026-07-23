@@ -197,6 +197,13 @@ void chCodexTick(const ChannelCtx& ctx) {
     const CodexData& d = *ctx.codex;
     if (d.err[0] || !d.valid) return;
 
+    // formatCountdown() has minute granularity, so only re-derive (and heap-
+    // allocate) the countdown strings when the wall-clock minute rolls over.
+    time_t t = time(nullptr);
+    struct tm tm; localtime_r(&t, &tm);
+    static int s_cdMin = -1;
+    const bool minTick = (tm.tm_min != s_cdMin);
+
     const bool realSecondary = d.secondaryPct >= 0 && d.secondaryTag[0] == '\0';
     const bool swapped = realSecondary && ctx.settings->codexWeeklyHero;
     const float heroPct  = swapped ? d.secondaryPct    : d.primaryPct;
@@ -209,7 +216,7 @@ void chCodexTick(const ChannelCtx& ctx) {
     bool rightDirty = false;
     if (d.creditsRemain >= 0) {
         if (fabsf(d.creditsRemain - s_credits) > 0.005f) rightDirty = true;
-    } else if (heroRst > 0) {
+    } else if (minTick && heroRst > 0) {
         String r = Api::formatCountdown(heroRst);
         if (strcmp(r.c_str(), s_rightLine) != 0) rightDirty = true;
     }
@@ -224,7 +231,7 @@ void chCodexTick(const ChannelCtx& ctx) {
     // Secondary — repaint on pct change or countdown text change
     float sp = (secPct < 0) ? -2.f : secPct;
     bool secDirty = fabsf(sp - s_secPct) > 0.4f;
-    if (!secDirty && secRst > 0) {
+    if (!secDirty && minTick && secRst > 0) {
         String fresh = Api::formatCountdown(secRst);
         if (strcmp(fresh.c_str(), s_secSub) != 0) secDirty = true;
     }
@@ -234,8 +241,7 @@ void chCodexTick(const ChannelCtx& ctx) {
         s_secPct = sp;
     }
 
-    time_t t = time(nullptr);
-    struct tm tm; localtime_r(&t, &tm);
+    s_cdMin = tm.tm_min;
     if (tm.tm_hour != s_sparkHour) {
         paintSparkBar(d, tm.tm_hour);
     }
