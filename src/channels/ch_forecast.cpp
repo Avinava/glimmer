@@ -9,7 +9,6 @@
 #include "weather_icons.h"
 #include <time.h>
 
-extern WeatherData* weatherSnapshotPtr();
 
 // tick cache: 3 days × (tmin, tmax, code)
 static float   s_fcMin[3]  = {-999, -999, -999};
@@ -19,7 +18,7 @@ static uint8_t s_fcCode[3] = {255, 255, 255};
 bool chForecastEnabled(const ChannelCtx& ctx) {
     if (!ctx.settings || !ctx.settings->showForecast) return false;
     if (ctx.settings->weatherLat == 0.0f && ctx.settings->weatherLon == 0.0f) return false;
-    WeatherData* w = weatherSnapshotPtr();
+    const WeatherData* w = &Weather::snapshot();
     return w && w->valid;
 }
 
@@ -76,7 +75,7 @@ static void paintRow(int i, const WeatherDay& day, float gMin, float range, bool
     tft.drawString(maxBuf, SCREEN_W - 10, y + 28);
 }
 
-static void computeRange(WeatherData* w, float& gMin, float& range) {
+static void computeRange(const WeatherData* w, float& gMin, float& range) {
     gMin = 999; float gMax = -999;
     for (int i = 0; i < 3; i++) {
         if (w->forecast[i].tmin > -900 && w->forecast[i].tmin < gMin) gMin = w->forecast[i].tmin;
@@ -91,7 +90,7 @@ void chForecastDraw(const ChannelCtx& ctx) {
     Display::clear();
     Display::statusBar("Forecast", "3-DAY", Theme::SKY);
 
-    WeatherData* w = weatherSnapshotPtr();
+    const WeatherData* w = &Weather::snapshot();
     if (!w || !w->valid) {
         Display::drawText("no forecast yet", SCREEN_W/2, 110, Theme::MUTED, Display::TITLE);
         for (int i = 0; i < 3; i++) { s_fcMin[i] = -999; s_fcMax[i] = -999; s_fcCode[i] = 255; }
@@ -111,7 +110,7 @@ void chForecastDraw(const ChannelCtx& ctx) {
 }
 
 void chForecastTick(const ChannelCtx& ctx) {
-    WeatherData* w = weatherSnapshotPtr();
+    const WeatherData* w = &Weather::snapshot();
     if (!w || !w->valid) return;
     bool f = ctx.settings && ctx.settings->useFahrenheit;
 

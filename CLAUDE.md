@@ -108,6 +108,37 @@ Generator: `tools/genfonts.py` (freetype-py). TTFs live in
   attention on a desk display. `drawActive()` just calls `draw()`
   directly. The ~80 ms full-screen clear is a brief cut, not a flash.
 
+## Fetch scheduler & heap gate
+
+- No blocking "refresh all". `main.cpp` runs a job table (claude, codex,
+  weather, status-claude, status-openai): at most one job per loop pass,
+  starts ≥ 3 s apart, so the web server and ticks keep running.
+- A TLS job only starts when `ESP.getMaxFreeBlockSize() >= Api::kTlsFloor`
+  (20 KB); otherwise it is deferred 5 s and counted in `heap_refusals`
+  (never as an upstream failure).
+- Per-source `FetchPolicy::State` (`src/data/fetch_policy.h`): backoff
+  60→120→240→300 s, `Retry-After` honoured (≤ 6 h), credential latched bad
+  only after **two** consecutive 401/403. Errors surface on screen only
+  after 3 failures or a latched credential; until then stale data stays up.
+- A job redraws the screen only when the data's shape changes
+  (loading → valid → error); value changes are picked up by `tick()`.
+- Response bodies are streamed into a filtered ArduinoJson parse
+  (`Api::tlsGetStream`) — never `getString()` a whole payload.
+- Claude per-model windows come from `limits[]` (`weekly_scoped`) or a fixed
+  allowlist (`seven_day_opus`/`seven_day_sonnet`/`extra_usage`) — never a sweep
+  of top-level keys (those are rotating internal codenames).
+- Pure logic lives in headers (`usage_parse.h`, `fetch_policy.h`,
+  `history_core.h`, `timeutil.h`, `night_core.h`) and is tested on the host:
+  `pio test -e native`.
+
+## Stale data & night modes
+
+- `Api::isStale(lastOk, s)`: older than 3 × refresh interval (15 min floor).
+  Stale = dimmed hero + amber `STALE 14M` status-bar meta, never a takeover.
+- `nightMode`: 0 none, 1 dim, 2 clock (Night face only, no rotation),
+  3 dark (backlight off). In 2/3 only CORAL push cards show (and wake a
+  dark panel). Window is minutes past midnight; start == end disables.
+
 ## System screens (splash / connecting / OTA) — same discipline
 
 - `Display::drawSplash()`, `drawConnecting()`, `drawOtaProgress()` cache
@@ -123,9 +154,11 @@ Adding a new persisted setting requires touching **four** files:
 2. `src/core/storage.cpp` — load with `doc["snake_key"] | default`,
    save with `doc["snake_key"] = s.field`.
 3. `src/core/web.cpp` — add to `handleApiGetSettings` (camelCase),
-   `applyIfPresent` (camelCase). Apply runtime-mutable values
-   (brightness, invertDisplay, tzOffset) immediately after
-   `Storage::save`.
+   `applyIfPresent` (camelCase). Runtime-mutable values (brightness,
+   invertDisplay, timezone, night mode) are applied by
+   `mainSettingsChanged()` after `Storage::save`.
+   Renaming a persisted key needs a load-time fallback from the old key
+   (see `tz_min` / `night_mode` in `Storage::load`).
 4. `data/web/index.html` — add input/checkbox with `x-model="settings.fieldName"`.
 
 `recomputeActive()` is called every rotation tick so settings toggles
@@ -133,11 +166,11 @@ take effect within one slide.
 
 ## pixelBar design
 
-10 discrete segments separated by 1-px BG gaps. Each segment is fully
+9 discrete segments separated by 1-px BG gaps. Each segment is fully
 lit or fully empty. **No partial fills** — that was causing two
 near-100% bars (e.g., 92% and 99%) to appear to "cross" each other at
-the right edge. With discrete segments, 92% and 99% both render as
-9-of-10 lit (no partial 10th). Threshold: lit if `pct > i*10`.
+the right edge. With 9 segments any value ≥ 89% lights every cell, so
+92% and 99% render identically. Threshold: lit if `pct > i*11.11`.
 
 ## Common pitfalls
 
@@ -149,7 +182,7 @@ the right edge. With discrete segments, 92% and 99% both render as
   notify on completion. For "wait for device to come back online" a
   short polling loop with `curl --max-time` is fine.
 - **TLS auth errors**: an `Auth -1` / `Auth -2` from a channel usually
-  means BearSSL handshake failed under heap pressure. The `tlsGet`
+  means BearSSL handshake failed under heap pressure. The `tlsGetStream`
   helper in `src/data/api.cpp` calls `Display::releaseFont()` before
   the handshake to free ~5 KB — keep that.
 

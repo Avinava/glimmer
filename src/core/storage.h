@@ -13,10 +13,7 @@ struct Settings {
     uint32_t refreshMin    = 5;
     uint32_t channelSec    = 8;
     uint8_t  brightness    = 80;     // 0-100
-    int8_t   tzOffset      = 0;      // legacy: hours from UTC, -12..+14
-    int16_t  tzMinutes     = 0;      // signed offset from UTC in minutes;
-                                     // takes precedence over tzOffset when non-zero.
-                                     // Range: -720 (UTC-12:00) .. +840 (UTC+14:00).
+    int16_t  tzMinutes     = 0;      // signed offset from UTC in minutes, -720..+840.
                                      // Allows 30/45-minute timezones (India +330, Nepal +345).
     bool     showClaude    = true;
     bool     showCodex     = true;
@@ -25,14 +22,19 @@ struct Settings {
     bool     showForecast  = true;
     bool     showAiDash    = true;
     bool     showInfo      = true;
+    bool     showTrend     = true;
+    bool     showStatus    = false;  // vendor status pages (2 extra TLS calls / 15 min)
     bool     autoRotate    = true;
     bool     claudeWeeklyHero = false;
     bool     codexWeeklyHero  = false;
+    bool     clock24h      = true;
     // Display polarity for this panel — keep true for SmallTV-Ultra ST7789.
     bool     invertDisplay = true;
-    bool     nightDim      = false;
-    uint8_t  nightStart    = 22;
-    uint8_t  nightEnd      = 7;
+
+    // Night window (local minutes past midnight; start == end disables).
+    uint8_t  nightMode     = 0;      // Night::Mode — 0 none, 1 dim, 2 clock, 3 dark
+    uint16_t nightStartMin = 22 * 60;
+    uint16_t nightEndMin   = 7 * 60;
     uint8_t  nightBright   = 15;
 
     // Weather (Open-Meteo, no key needed)
@@ -42,7 +44,7 @@ struct Settings {
     bool     useFahrenheit = false;
 
     // Personalization
-    String   userName;                // shown on splash + birthday
+    String   userName;                // shown on the greeting splash + clock
     String   birthday;                // MM-DD format, e.g. "07-15"
 
     // Push API auth (also used for MCP)
@@ -53,5 +55,10 @@ namespace Storage {
     void     begin();           // mounts LittleFS
     Settings load();
     bool     save(const Settings& s);
+    // Validate a full config.json body and atomically replace the stored one.
+    bool     importRaw(const String& json);
     void     factoryReset();
+
+    // POSIX TZ string for the fixed offset ("UTC-5:30" for +05:30) and apply it.
+    void     applyTimezone(const Settings& s);
 }

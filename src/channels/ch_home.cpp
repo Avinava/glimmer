@@ -23,16 +23,18 @@
 #include "config.h"
 #include "weather.h"
 #include "weather_icons.h"
+#include "clockfmt.h"
 #include <ESP8266WiFi.h>
 #include <time.h>
 #include <math.h>
 
-extern WeatherData* weatherSnapshotPtr();
 
 // ── File-static cache so tick() can diff vs last paint ──
 static int     s_hh = -1, s_mm = -1, s_dayHour = -1;
 static float   s_cl = -2.f, s_cx = -2.f;
 static int     s_loadDot = -1;
+static char    s_rain[24] = "";
+static int     s_rainMin = -1;
 static float   s_tempC = -999.f;
 static uint8_t s_code = 255;
 // Clock x-geometry cached on first paint
@@ -57,9 +59,9 @@ static void clockGeom() {
 
 // ── Per-region paint helpers ──
 
-static void paintHH(int hh) {
+static void paintHH(int hh, bool h24) {
     clockGeom();
-    char b[4]; snprintf(b, sizeof(b), "%02d", hh);
+    char b[4]; ClockFmt::hourField(hh, h24, b, sizeof(b));
     tft.fillRect(s_hhX, 6, s_digitW * 2, 86, Theme::BG);
     Display::useFont("VT323-86");
     tft.setTextDatum(TL_DATUM);
@@ -116,7 +118,7 @@ static void paintWeatherFeels(const WeatherData* w, bool f) {
 static void paintWeatherCondition(const WeatherData* w) {
     tft.fillRect(SCREEN_W - 86, 62, 86, 34, Theme::BG);
     if (w && w->valid) {
-        WeatherIcon::draw(SCREEN_W - 36, 62, w->code, Theme::SKY, 2);
+        WeatherIcon::draw(SCREEN_W - 36, 62, w->code, Theme::SKY, 2, !w->isDay);
         Display::useFont("DMMono-11");
         tft.setTextDatum(TR_DATUM);
         tft.setTextColor(Theme::INK_DIM, Theme::BG);
@@ -204,6 +206,16 @@ static void paintHourStrip(int curHour) {
     tft.drawString(leftBuf, SCREEN_W - 10, 154);
 }
 
+// Footer left: the next-12-h rain hint when one applies, else "HOME".
+static void paintFooterLeft(const char* rain) {
+    tft.fillRect(0, 198, SCREEN_W / 2 + 20, 16, Theme::BG);
+    Display::useFont("DMMono-11");
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextColor(rain[0] ? Theme::SKY : Theme::MUTED, Theme::BG);
+    tft.drawString(rain[0] ? rain : "HOME", 10, 200);
+    strncpy(s_rain, rain, sizeof(s_rain) - 1);
+}
+
 // ── Full repaint ──
 
 void chHomeDraw(const ChannelCtx& ctx) {
@@ -215,12 +227,12 @@ void chHomeDraw(const ChannelCtx& ctx) {
     struct tm tmv; localtime_r(&now, &tmv);
 
     // Hero clock
-    paintHH(tmv.tm_hour);
+    paintHH(tmv.tm_hour, ctx.settings->clock24h);
     paintColon();
     paintMM(tmv.tm_min);
 
     // Weather column
-    WeatherData* w = weatherSnapshotPtr();
+    const WeatherData* w = &Weather::snapshot();
     bool f = ctx.settings && ctx.settings->useFahrenheit;
     paintWeatherTemp(w, f);
     paintWeatherFeels(w, f);
@@ -243,7 +255,7 @@ void chHomeDraw(const ChannelCtx& ctx) {
     // stays valid=false/err="" and must read as "--", not a perpetual loader).
     const bool clLoading = ctx.claude && !ctx.settings->claudeKey.isEmpty()   && claudeLoading(*ctx.claude);
     const bool cxLoading = ctx.codex  && !ctx.settings->codexToken.isEmpty()  && codexLoading(*ctx.codex);
-    float cl = ctx.claude ? (ctx.settings->claudeWeeklyHero ? ctx.claude->weeklyPct : ctx.claude->sessionPct) : -1.f;
+    float cl = ctx.claude ? Api::claudeHeroPct(*ctx.settings, *ctx.claude) : -1.f;
     float cx = ctx.codex  ? Api::codexHeroPct(*ctx.settings, *ctx.codex) : -1.f;
     const int lit = (ctx.now_ms / 150) % 3;
     paintCL(cl, clLoading, lit);
@@ -260,11 +272,11 @@ void chHomeDraw(const ChannelCtx& ctx) {
     paintHourStrip(tmv.tm_hour);
 
     // Footer
+    char rain[24]; Weather::rainHint(*ctx.settings, rain, sizeof(rain));
+    paintFooterLeft(rain);
     Display::useFont("DMMono-11");
-    tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::MUTED, Theme::BG);
-    tft.drawString("HOME", 10, 200);
     tft.setTextDatum(TR_DATUM);
+    tft.setTextColor(Theme::MUTED, Theme::BG);
     tft.drawString(WiFi.localIP().toString(), SCREEN_W - 10, 200);
 
     // ── Seed cache ──
@@ -284,14 +296,19 @@ void chHomeTick(const ChannelCtx& ctx) {
 
     // Clock
     if (tmv.tm_min != s_mm) { paintMM(tmv.tm_min); s_mm = tmv.tm_min; }
-    if (tmv.tm_hour != s_hh) { paintHH(tmv.tm_hour); s_hh = tmv.tm_hour; }
+    if (tmv.tm_hour != s_hh) { paintHH(tmv.tm_hour, ctx.settings->clock24h); s_hh = tmv.tm_hour; }
+    if (tmv.tm_min != s_rainMin) {
+        char rain[24]; Weather::rainHint(*ctx.settings, rain, sizeof(rain));
+        if (strcmp(rain, s_rain) != 0) paintFooterLeft(rain);
+        s_rainMin = tmv.tm_min;
+    }
     if (tmv.tm_hour != s_dayHour) {
         paintHourStrip(tmv.tm_hour);
         s_dayHour = tmv.tm_hour;
     }
 
     // Weather (only repaint on meaningful change)
-    WeatherData* w = weatherSnapshotPtr();
+    const WeatherData* w = &Weather::snapshot();
     bool f = ctx.settings && ctx.settings->useFahrenheit;
     if (w && w->valid) {
         if (fabsf(w->tempC - s_tempC) > 0.4f) {
@@ -309,7 +326,7 @@ void chHomeTick(const ChannelCtx& ctx) {
     // ±0.4% so noise doesn't thrash.
     const bool clLoading = ctx.claude && !ctx.settings->claudeKey.isEmpty()  && claudeLoading(*ctx.claude);
     const bool cxLoading = ctx.codex  && !ctx.settings->codexToken.isEmpty() && codexLoading(*ctx.codex);
-    const float cl = ctx.claude ? (ctx.settings->claudeWeeklyHero ? ctx.claude->weeklyPct : ctx.claude->sessionPct) : -1.f;
+    const float cl = ctx.claude ? Api::claudeHeroPct(*ctx.settings, *ctx.claude) : -1.f;
     const float cx = ctx.codex  ? Api::codexHeroPct(*ctx.settings, *ctx.codex) : -1.f;
     const int lit = (ctx.now_ms / 150) % 3;
 

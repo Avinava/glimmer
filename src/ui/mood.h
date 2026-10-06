@@ -11,8 +11,4 @@ namespace Mood {
 
     // Returns true if it's "alert hours" — when allowed to flash, animate, etc.
     bool isWorkingHours(int hour);
-
-    // Auto-brightness suggestion (0..100) based on hour. Lower at night.
-    int suggestedBrightness(int hour, int dayBright, bool dimAtNight,
-                            int nightBright, int nightStart, int nightEnd);
 }

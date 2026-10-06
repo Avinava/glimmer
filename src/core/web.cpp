@@ -15,6 +15,8 @@
 #include "web.h"
 #include "display.h"
 #include "api.h"
+#include "weather.h"
+#include "vendor_status.h"
 #include <ESP8266HTTPUpdateServer.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
@@ -36,6 +38,14 @@ extern int         mainTotalCount();
 extern void        mainTriggerRefresh();
 extern const char* mainEnabledChannelName(int idx);
 extern const ClaudeData* mainClaudeData();
+extern const CodexData*  mainCodexData();
+extern bool        mainNightFace();
+extern uint32_t    mainHeapRefusals();
+extern uint32_t    mainMinMaxBlock();
+extern uint32_t    mainNextFetchInMs();
+extern bool        mainShowChannel(const char* name);
+extern void        mainNextChannel();
+extern void        mainSettingsChanged();
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -92,6 +102,16 @@ static String maskSecret(const String& s) {
     return s.isEmpty() ? String("") : String("***");
 }
 
+static void sourceJson(JsonObject o, const FetchPolicy::State& p, bool valid, const char* err) {
+    o["valid"]     = valid;
+    o["last_ok"]   = (uint32_t)p.lastOk;
+    o["code"]      = p.lastCode;
+    o["fails"]     = p.fails;
+    o["auth_bad"]  = p.authLatched;
+    o["backoff_s"] = p.waitS;
+    o["err"]       = err;
+}
+
 static void handleApiState() {
     JsonDocument d;
     d["fw"]                  = FW_VERSION;
@@ -104,16 +124,41 @@ static void handleApiState() {
     d["heap"]                = ESP.getFreeHeap();
     d["maxblk"]              = ESP.getMaxFreeBlockSize();
     d["cpu_mhz"]             = ESP.getCpuFreqMHz();
+    d["min_maxblk"]          = mainMinMaxBlock();
+    d["heap_refusals"]       = mainHeapRefusals();
+    d["reset_reason"]        = ESP.getResetReason();
+    d["build"]               = __DATE__ " " __TIME__;
+    d["active_channel"]      = mainActiveChannelName();
+    d["night_face"]          = mainNightFace();
+    d["next_fetch_s"]        = mainNextFetchInMs() / 1000;
     d["claude_configured"]   = pSettings && !pSettings->claudeKey.isEmpty();
     d["codex_configured"]    = pSettings && !pSettings->codexToken.isEmpty();
-    d["weather_configured"]  = pSettings && (pSettings->weatherLat != 0.0f || pSettings->weatherLon != 0.0f);
+    d["weather_configured"]  = pSettings && Weather::configured(*pSettings);
     // Diagnostics for the cold-boot Claude parse failure.
     d["claude_http"]         = Api::lastClaudeHttp();
-    d["claude_bodylen"]      = Api::lastClaudeBodyLen();
     d["claude_parse"]        = Api::lastClaudeParse();
     if (const ClaudeData* cd = mainClaudeData()) {
         d["claude_err"]      = cd->err;
         d["claude_valid"]    = cd->valid;
+    }
+    // Per-source fetch health.
+    JsonObject src = d["sources"].to<JsonObject>();
+    const ClaudeData* cl = mainClaudeData();
+    const CodexData*  cx = mainCodexData();
+    sourceJson(src["claude"].to<JsonObject>(), Api::claudePolicy(), cl->valid, cl->err);
+    sourceJson(src["codex"].to<JsonObject>(),  Api::codexPolicy(),  cx->valid, cx->err);
+    const WeatherData& w = Weather::snapshot();
+    sourceJson(src["weather"].to<JsonObject>(), Weather::policy(), w.valid, w.err);
+    if (pSettings && pSettings->showStatus) {
+        JsonObject vs = d["vendor_status"].to<JsonObject>();
+        const char* names[VendorStatus::COUNT] = {"claude", "openai"};
+        for (int i = 0; i < VendorStatus::COUNT; i++) {
+            const VendorStatus::Info& in = VendorStatus::get((VendorStatus::Vendor)i);
+            JsonObject o = vs[names[i]].to<JsonObject>();
+            o["level"]       = VendorStatus::levelName(in.level);
+            o["description"] = in.description;
+            o["last_ok"]     = (uint32_t)in.lastOk;
+        }
     }
     String out; serializeJson(d, out);
     server.send(200, "application/json", out);
@@ -133,7 +178,6 @@ static void handleApiGetSettings() {
     d["refreshMin"]    = s.refreshMin;
     d["channelSec"]    = s.channelSec;
     d["brightness"]    = s.brightness;
-    d["tzOffset"]      = s.tzOffset;
     d["tzMinutes"]     = s.tzMinutes;
     d["showClaude"]    = s.showClaude;
     d["showCodex"]     = s.showCodex;
@@ -143,13 +187,16 @@ static void handleApiGetSettings() {
     d["showForecast"]  = s.showForecast;
     d["showAiDash"]    = s.showAiDash;
     d["showInfo"]      = s.showInfo;
+    d["showTrend"]     = s.showTrend;
+    d["showStatus"]    = s.showStatus;
     d["autoRotate"]    = s.autoRotate;
     d["claudeWeeklyHero"] = s.claudeWeeklyHero;
     d["codexWeeklyHero"]  = s.codexWeeklyHero;
+    d["clock24h"]      = s.clock24h;
     d["invertDisplay"] = s.invertDisplay;
-    d["nightDim"]      = s.nightDim;
-    d["nightStart"]    = s.nightStart;
-    d["nightEnd"]      = s.nightEnd;
+    d["nightMode"]     = s.nightMode;
+    d["nightStartMin"] = s.nightStartMin;
+    d["nightEndMin"]   = s.nightEndMin;
     d["nightBright"]   = s.nightBright;
     d["weatherLat"]    = s.weatherLat;
     d["weatherLon"]    = s.weatherLon;
@@ -191,11 +238,11 @@ static void applyIfPresent(Settings& s, JsonDocument& d) {
             dst = (uint8_t)v;
         }
     };
-    auto applyI8 = [&](const char* k, int8_t& dst, int lo, int hi) {
-        if (d[k].is<int>()) {
+    auto applyU16 = [&](const char* k, uint16_t& dst, int lo, int hi) {
+        if (d[k].is<int>() || d[k].is<unsigned int>()) {
             int v = d[k].as<int>();
             if (v < lo) v = lo; if (v > hi) v = hi;
-            dst = (int8_t)v;
+            dst = (uint16_t)v;
         }
     };
     auto applyI16 = [&](const char* k, int16_t& dst, int lo, int hi) {
@@ -215,10 +262,10 @@ static void applyIfPresent(Settings& s, JsonDocument& d) {
     applyU32("refreshMin",  s.refreshMin,  1, 60);
     applyU32("channelSec",  s.channelSec,  3, 60);
     applyU8 ("brightness",  s.brightness,  5, 100);
-    applyI8 ("tzOffset",    s.tzOffset,   -12, 14);
     applyI16("tzMinutes",   s.tzMinutes,  -720, 840);
-    applyU8 ("nightStart",  s.nightStart,  0, 23);
-    applyU8 ("nightEnd",    s.nightEnd,    0, 23);
+    applyU8 ("nightMode",   s.nightMode,   0, 3);
+    applyU16("nightStartMin", s.nightStartMin, 0, 1439);
+    applyU16("nightEndMin",   s.nightEndMin,   0, 1439);
     applyU8 ("nightBright", s.nightBright, 1, 100);
     applyBool("showClaude",   s.showClaude);
     applyBool("showCodex",    s.showCodex);
@@ -228,11 +275,13 @@ static void applyIfPresent(Settings& s, JsonDocument& d) {
     applyBool("showForecast", s.showForecast);
     applyBool("showAiDash",   s.showAiDash);
     applyBool("showInfo",     s.showInfo);
+    applyBool("showTrend",    s.showTrend);
+    applyBool("showStatus",   s.showStatus);
     applyBool("autoRotate",   s.autoRotate);
     applyBool("claudeWeeklyHero", s.claudeWeeklyHero);
     applyBool("codexWeeklyHero",  s.codexWeeklyHero);
+    applyBool("clock24h",     s.clock24h);
     applyBool("invertDisplay",s.invertDisplay);
-    applyBool("nightDim",    s.nightDim);
     applyBool("useFahrenheit", s.useFahrenheit);
     applyFloat("weatherLat", s.weatherLat);
     applyFloat("weatherLon", s.weatherLon);
@@ -246,27 +295,14 @@ static void handleApiPostSettings() {
         return;
     }
     applyIfPresent(*pSettings, d);
-    Storage::save(*pSettings);
-
-    // Apply runtime-mutable settings immediately so the user sees the effect.
-    Display::setInvert(pSettings->invertDisplay);
-    Display::setBrightness(pSettings->brightness);
-    // POSIX TZ string: positive offset east of UTC must be expressed as a
-    // NEGATIVE POSIX offset (POSIX expresses "time to ADD to local to get UTC").
-    // tzMinutes wins if non-zero (supports +5:30 India / +5:45 Nepal / etc.);
-    // otherwise fall back to hour-only tzOffset.
-    int signedMin = (pSettings->tzMinutes != 0)
-                  ? (int)pSettings->tzMinutes
-                  : (int)pSettings->tzOffset * 60;
-    int posixMin  = -signedMin;
-    int posixH    = posixMin / 60;
-    int posixM    = posixMin % 60; if (posixM < 0) posixM = -posixM;
-    char tzBuf[16];
-    snprintf(tzBuf, sizeof(tzBuf), "UTC%+d:%02d", posixH, posixM);
-    setenv("TZ", tzBuf, 1);
-    tzset();
+    if (!Storage::save(*pSettings)) {
+        server.send(507, "application/json", "{\"error\":\"save failed\"}");
+        return;
+    }
 
     bool restart = d["_restart"] | false;
+    // Apply runtime-mutable settings immediately so the user sees the effect.
+    if (!restart) mainSettingsChanged();
     server.send(200, "application/json", restart ? "{\"ok\":true,\"restart\":true}" : "{\"ok\":true}");
     if (restart) { delay(300); ESP.restart(); }
 }
@@ -278,23 +314,18 @@ static void handleApiExport() {
         handleApiGetSettings();
         return;
     }
-    server.sendHeader("Content-Disposition", "attachment; filename=smalltv-config.json");
+    server.sendHeader("Content-Disposition", "attachment; filename=glimmer-config.json");
     server.streamFile(f, "application/json");
     f.close();
 }
 
 static void handleApiImport() {
     // Body is a full config.json. Validate it parses, then atomically replace
-    // the file and restart.
-    JsonDocument d;
-    if (deserializeJson(d, server.arg("plain"))) {
-        server.send(400, "application/json", "{\"error\":\"bad json\"}");
+    // the file (tmp + rename) and restart.
+    if (!Storage::importRaw(server.arg("plain"))) {
+        server.send(400, "application/json", "{\"error\":\"bad json or fs write\"}");
         return;
     }
-    File f = LittleFS.open("/config.json", "w");
-    if (!f) { server.send(500, "application/json", "{\"error\":\"fs write\"}"); return; }
-    f.print(server.arg("plain"));
-    f.close();
     server.send(200, "application/json", "{\"ok\":true,\"restart\":true}");
     delay(300);
     ESP.restart();
@@ -376,6 +407,22 @@ static void handleMcp() {
         t2["name"] = "get_state";
         t2["description"] = "Return the device's current state (active channel, usage, uptime, heap, wifi)";
         t2["inputSchema"]["type"] = "object";
+
+        // show_channel
+        JsonObject t3 = tools.add<JsonObject>();
+        t3["name"] = "show_channel";
+        t3["description"] = "Switch the screen to a channel by name (see enabled_channels in get_state)";
+        JsonObject s3 = t3["inputSchema"].to<JsonObject>();
+        s3["type"] = "object";
+        s3["properties"]["name"]["type"] = "string";
+        s3["properties"]["name"]["description"] = "Channel name, e.g. Claude, Codex, Weather, Trend";
+        s3["required"].to<JsonArray>().add("name");
+
+        // next_channel
+        JsonObject t4 = tools.add<JsonObject>();
+        t4["name"] = "next_channel";
+        t4["description"] = "Advance the screen to the next enabled channel";
+        t4["inputSchema"]["type"] = "object";
     }
     else if (strcmp(method, "tools/call") == 0) {
         const char* name = req["params"]["name"] | "";
@@ -416,9 +463,18 @@ static void handleMcp() {
                         m["pct"]   = (int)cd->models[i].pct;
                     }
                 }
-                if (cd->rawKeys[0]) st["claude_raw_keys"] = cd->rawKeys;
             }
             resp["result"]["content"][0]["type"] = "json";
+        } else if (strcmp(name, "show_channel") == 0) {
+            const char* ch = args["name"] | "";
+            bool ok = mainShowChannel(ch);
+            resp["result"]["content"][0]["type"] = "text";
+            resp["result"]["content"][0]["text"] = ok ? "Switched" : "No enabled channel with that name";
+            if (!ok) resp["result"]["isError"] = true;
+        } else if (strcmp(name, "next_channel") == 0) {
+            mainNextChannel();
+            resp["result"]["content"][0]["type"] = "text";
+            resp["result"]["content"][0]["text"] = mainActiveChannelName();
         } else {
             resp["error"]["code"]    = -32602;
             resp["error"]["message"] = "Unknown tool";
@@ -458,6 +514,23 @@ void Web::begin(Settings& settings) {
         if (!checkAuth()) { server.send(401, "application/json", "{\"error\":\"unauthorized\"}"); return; }
         mainTriggerRefresh();
         server.send(200, "application/json", "{\"ok\":true}");
+    });
+
+    // Manual channel switching: {"name":"Claude"} or {"action":"next"}
+    server.on("/api/channel",        HTTP_POST, []() {
+        if (!checkAuth()) { server.send(401, "application/json", "{\"error\":\"unauthorized\"}"); return; }
+        JsonDocument d;
+        if (deserializeJson(d, server.arg("plain"))) {
+            server.send(400, "application/json", "{\"error\":\"bad json\"}");
+            return;
+        }
+        if (strcmp(d["action"] | "", "next") == 0) mainNextChannel();
+        else if (!mainShowChannel(d["name"] | "")) {
+            server.send(404, "application/json", "{\"error\":\"no enabled channel with that name\"}");
+            return;
+        }
+        String out = String("{\"ok\":true,\"active\":\"") + mainActiveChannelName() + "\"}";
+        server.send(200, "application/json", out);
     });
 
     // Legacy + event endpoints

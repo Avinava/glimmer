@@ -34,13 +34,4 @@ bool isWorkingHours(int hour) {
     return hour >= 8 && hour < 20;
 }
 
-int suggestedBrightness(int hour, int dayBright, bool dimAtNight,
-                        int nightBright, int nightStart, int nightEnd) {
-    if (!dimAtNight) return dayBright;
-    bool inNight = (nightStart <= nightEnd)
-                   ? (hour >= nightStart && hour < nightEnd)
-                   : (hour >= nightStart || hour < nightEnd);
-    return inNight ? nightBright : dayBright;
-}
-
 }  // namespace Mood

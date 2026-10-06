@@ -61,7 +61,11 @@ namespace Display {
     //   center:      title text, Silkscreen-feel
     //   right slot:  small meta text (model name, location code, etc.)
     //   y=22:        1-px accent under-line in the channel's color
-    void statusBar(const char* title, const char* rightMeta, uint16_t accent);
+    void statusBar(const char* title, const char* rightMeta, uint16_t accent,
+                   uint16_t metaColor = 0x8BF2 /* Theme::MUTED */);
+    // Repaint only the status bar's right-meta slot (safe from tick()).
+    void statusMeta(const char* rightMeta, uint16_t accent,
+                    uint16_t metaColor = 0x8BF2 /* Theme::MUTED */);
 
     // Flat colored fill bar with 1-px frame. The design language.
     //   x, y, w, h:  full bar rectangle

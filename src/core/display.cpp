@@ -341,7 +341,7 @@ void Display::drawOtaProgress(uint8_t pct) {
 // ── Design-system primitives (v0.8) ─────────────────────────────────────────
 
 void Display::statusBar(const char* title,
-                        const char* rightMeta, uint16_t accent) {
+                        const char* rightMeta, uint16_t accent, uint16_t metaColor) {
     using namespace Layout;
     tft.fillRect(0, STATUS_TOP, SCREEN_W, STATUS_BOTTOM, Theme::BG);
 
@@ -355,12 +355,26 @@ void Display::statusBar(const char* title,
     if (rightMeta && *rightMeta) {
         Display::useFont("DMMono-11");
         tft.setTextDatum(MR_DATUM);
-        tft.setTextColor(Theme::MUTED, Theme::BG);
+        tft.setTextColor(metaColor, Theme::BG);
         tft.drawString(rightMeta, SCREEN_W - 4, STATUS_BOTTOM / 2);
     }
 
     // 1-px accent under-line at y=22
     tft.drawFastHLine(0, STATUS_BOTTOM, SCREEN_W, accent);
+}
+
+// Right-meta slot = the 76 px right of the centred title.
+void Display::statusMeta(const char* rightMeta, uint16_t accent, uint16_t metaColor) {
+    using namespace Layout;
+    const int x = SCREEN_W - 76;
+    tft.fillRect(x, STATUS_TOP, 76, STATUS_BOTTOM, Theme::BG);
+    if (rightMeta && *rightMeta) {
+        Display::useFont("DMMono-11");
+        tft.setTextDatum(MR_DATUM);
+        tft.setTextColor(metaColor, Theme::BG);
+        tft.drawString(rightMeta, SCREEN_W - 4, STATUS_BOTTOM / 2);
+    }
+    tft.drawFastHLine(x, STATUS_BOTTOM, 76, accent);
 }
 
 void Display::pixelBar(int x, int y, int w, int h, float pct, uint16_t color) {
@@ -410,7 +424,11 @@ uint16_t Theme::channelColor(const char* name) {
     if (!strcmp(name, "Claude"))  return CORAL;
     if (!strcmp(name, "Codex"))   return LILAC;
     if (!strcmp(name, "Weather")) return SKY;
+    if (!strcmp(name, "Forecast"))return SKY;
     if (!strcmp(name, "Clock"))   return AMBER;
+    if (!strcmp(name, "Home"))    return AMBER;
+    if (!strcmp(name, "AI"))      return INK_DIM;
+    if (!strcmp(name, "Trend"))   return MINT;
     if (!strcmp(name, "Info"))    return MINT;
     if (!strcmp(name, "Push"))    return CORAL;  // overridden per-card
     return MUTED;

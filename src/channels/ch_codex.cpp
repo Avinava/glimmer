@@ -1,8 +1,11 @@
 // Codex — Claude-style hero layout (mirrors ch_claude.cpp with LILAC accent).
-// v0.19: 24-h spark histogram at the bottom, driven by hourlyPct[] ring buffer.
+// Bottom: 24-h strip of the weekly allowance (hourly, from the usage history
+// ring) with the weekly PACE on its label row.
 
 #include "channel.h"
+#include "chrome.h"
 #include "display.h"
+#include "history.h"
 #include "theme.h"
 #include "config.h"
 #include "layout.h"
@@ -13,10 +16,19 @@
 static float s_heroPct = -2.f;
 static float s_secPct  = -2.f;
 static float s_credits = -2.f;
+static bool  s_stale   = false;
 static char  s_rightLine[16] = "";
 static char  s_secSub[24] = "";
-static int   s_sparkHour = -1;
+static char  s_pace[20] = "";
+static uint32_t s_sparkHour = 0;
+static float s_sparkPct = -2.f;     // primaryPct the strip's current bar shows
+static MetaSlot s_meta;
 static int   s_loadDot = -1;
+
+static MetaSlot metaFor(const ChannelCtx& ctx) {
+    return usageMeta(*ctx.settings, ctx.codex->lastOk, VendorStatus::OPENAI,
+                     ctx.settings->codexModelLabel.c_str());
+}
 
 bool chCodexEnabled(const ChannelCtx& ctx) {
     return ctx.settings && ctx.settings->showCodex && !ctx.settings->codexToken.isEmpty();
@@ -59,13 +71,14 @@ static void paintRightStack(const CodexData& d, time_t heroReset) {
     }
 }
 
-static void paintPrimaryHero(float pct) {
+static void paintPrimaryHero(float pct, bool stale) {
     char pctBuf[8];
     if (pct < 0) snprintf(pctBuf, sizeof(pctBuf), "--");
     else         snprintf(pctBuf, sizeof(pctBuf), "%.0f", pct);
     tft.fillRect(10, 46, SCREEN_W - 110, 76, Theme::BG);
 
-    uint16_t uc = Display::usageColor(pct);
+    // Stale data stays visible but dimmed — it is not a live reading.
+    uint16_t uc = stale ? Theme::MUTED : Display::usageColor(pct);
     Display::useFont("VT323-86");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(uc, Theme::BG);
@@ -104,7 +117,15 @@ static void paintSecondary(float pct, time_t secReset, const char* label) {
                      pct < 0 ? 0 : pct, uc);
 }
 
-static void paintSparkBar(const CodexData& d, int curHour) {
+static void paceFor(const CodexData& d, char* buf, size_t n) {
+    History::Pace p = History::pace(UsageHistory::ring(), History::CODEX_WEEK,
+                                    d.primaryPct, time(nullptr), d.primaryReset);
+    History::paceText(p, buf, n);
+}
+
+// "24H" label + pace on one row, then one bar per hour (oldest left, current
+// hour right, in LILAC) = % of the weekly allowance remaining at that hour.
+static void paintSparkBar(const char* pace) {
     const int sx = 12, sy = 188, sw = SCREEN_W - 24, sh = 31;
     const int barW = sw / 24;
     tft.fillRect(sx, 174, sw, 46, Theme::BG);
@@ -113,26 +134,34 @@ static void paintSparkBar(const CodexData& d, int curHour) {
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::MUTED, Theme::BG);
     tft.drawString("24H", sx, 174);
+    if (pace[0]) {
+        tft.setTextDatum(TR_DATUM);
+        tft.setTextColor(strncmp(pace, "EMPTY", 5) == 0 ? Theme::CORAL : Theme::INK_DIM, Theme::BG);
+        tft.drawString(pace, SCREEN_W - 12, 174);
+    }
+    strncpy(s_pace, pace, sizeof(s_pace) - 1);
 
+    uint32_t hourNow = (uint32_t)(time(nullptr) / 3600);
+    const History::Ring& r = UsageHistory::ring();
     for (int i = 0; i < 24; i++) {
         int bx = sx + i * barW;
-        if (!d.hourlyValid[i]) {
+        int8_t v = History::at(r, hourNow - 23 + i, History::CODEX_WEEK);
+        if (v < 0) {
             tft.drawFastHLine(bx, sy + sh - 1, barW - 1, Theme::LINE);
             continue;
         }
-        int bh = (d.hourlyPct[i] * sh) / 100;
+        int bh = (v * sh) / 100;
         if (bh < 1) bh = 1;
-        uint16_t c = (i == curHour) ? Theme::LILAC : Theme::INK_DIM;
+        uint16_t c = (i == 23) ? Theme::LILAC : Theme::INK_DIM;
         tft.fillRect(bx, sy + sh - bh, barW - 1, bh, c);
     }
-    s_sparkHour = curHour;
+    s_sparkHour = hourNow;
 }
 
 void chCodexDraw(const ChannelCtx& ctx) {
     Display::clear();
-    const char* cxModel = ctx.settings->codexModelLabel.length() > 0
-                        ? ctx.settings->codexModelLabel.c_str() : "";
-    Display::statusBar("Codex", cxModel, Theme::LILAC);
+    s_meta = metaFor(ctx);
+    Display::statusBar("Codex", s_meta.text, Theme::LILAC, s_meta.color);
 
     const CodexData& d = *ctx.codex;
     if (d.err[0]) {
@@ -142,7 +171,7 @@ void chCodexDraw(const ChannelCtx& ctx) {
         tft.drawString(d.err, SCREEN_W/2, 100);
         Display::useFont("DMMono-11");
         tft.setTextColor(Theme::MUTED, Theme::BG);
-        tft.drawString("Refresh token in web UI", SCREEN_W/2, 124);
+        tft.drawString(errorHint(d.authErr), SCREEN_W/2, 124);
         s_heroPct = -2.f; s_secPct = -2.f; s_credits = -2.f;
         s_rightLine[0] = 0;
         return;
@@ -175,8 +204,9 @@ void chCodexDraw(const ChannelCtx& ctx) {
     tft.setTextColor(Theme::MUTED, Theme::BG);
     tft.drawString(heroLbl, 12, 32);
 
+    s_stale = Api::isStale(d.lastOk, *ctx.settings);
     paintRightStack(d, heroRst);
-    paintPrimaryHero(heroPct);
+    paintPrimaryHero(heroPct, s_stale);
 
     Display::dotsDivider(12, 146, SCREEN_W - 24);
 
@@ -185,9 +215,9 @@ void chCodexDraw(const ChannelCtx& ctx) {
 
     Display::dotsDivider(12, 170, SCREEN_W - 24);
 
-    time_t t = time(nullptr);
-    struct tm tm; localtime_r(&t, &tm);
-    paintSparkBar(d, tm.tm_hour);
+    char pace[20]; paceFor(d, pace, sizeof(pace));
+    paintSparkBar(pace);
+    s_sparkPct = d.primaryPct;
 
     // Seed cache
     s_heroPct = (heroPct < 0) ? -2.f : heroPct;
@@ -233,10 +263,17 @@ void chCodexTick(const ChannelCtx& ctx) {
     }
     if (rightDirty) { paintRightStack(d, heroRst); s_credits = d.creditsRemain; }
 
+    if (minTick) {
+        MetaSlot m = metaFor(ctx);
+        if (m != s_meta) { Display::statusMeta(m.text, Theme::LILAC, m.color); s_meta = m; }
+    }
+
     float p = (heroPct < 0) ? -2.f : heroPct;
-    if (fabsf(p - s_heroPct) > 0.4f) {
-        paintPrimaryHero(heroPct);
+    bool stale = Api::isStale(d.lastOk, *ctx.settings);
+    if (fabsf(p - s_heroPct) > 0.4f || stale != s_stale) {
+        paintPrimaryHero(heroPct, stale);
         s_heroPct = p;
+        s_stale = stale;
     }
 
     // Secondary — repaint on pct change or countdown text change
@@ -252,8 +289,14 @@ void chCodexTick(const ChannelCtx& ctx) {
         s_secPct = sp;
     }
 
-    s_cdMin = tm.tm_min;
-    if (tm.tm_hour != s_sparkHour) {
-        paintSparkBar(d, tm.tm_hour);
+    // The strip shifts every hour; the pace moves with each fetch.
+    if (minTick || (uint32_t)(t / 3600) != s_sparkHour) {
+        char pace[20]; paceFor(d, pace, sizeof(pace));
+        if ((uint32_t)(t / 3600) != s_sparkHour || strcmp(pace, s_pace) != 0
+            || fabsf(d.primaryPct - s_sparkPct) > 0.4f) {
+            paintSparkBar(pace);
+            s_sparkPct = d.primaryPct;
+        }
     }
+    s_cdMin = tm.tm_min;
 }

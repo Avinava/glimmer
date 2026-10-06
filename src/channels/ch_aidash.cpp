@@ -20,6 +20,7 @@ static float s_credits = -2.f;
 static char  s_clReset[12] = "";
 static char  s_cxReset[12] = "";
 static int   s_loadDot = -1;
+static char  s_advice[32] = "";
 
 bool chAiDashEnabled(const ChannelCtx& ctx) {
     return ctx.settings && ctx.settings->showAiDash
@@ -75,6 +76,19 @@ static void paintResetRow(int y, const char* tag, uint16_t tagColor, time_t rese
     tft.drawString(cd, SCREEN_W - 12, y);
 }
 
+// Which weekly allowance to spend next (see Api::adviceText).
+static void paintAdvice(const char* advice) {
+    tft.fillRect(0, 192, SCREEN_W, 20, Theme::BG);
+    if (advice[0]) {
+        Display::dotsDivider(12, 192, SCREEN_W - 24);
+        Display::useFont("DMMono-11");
+        tft.setTextDatum(TC_DATUM);
+        tft.setTextColor(Theme::INK, Theme::BG);
+        tft.drawString(advice, SCREEN_W / 2, 198);
+    }
+    strncpy(s_advice, advice, sizeof(s_advice) - 1);
+}
+
 void chAiDashDraw(const ChannelCtx& ctx) {
     Display::clear();
 
@@ -84,7 +98,7 @@ void chAiDashDraw(const ChannelCtx& ctx) {
     if (credits >= 0) snprintf(rmeta, sizeof(rmeta), "$%.2f", credits);
     Display::statusBar("AI today", rmeta, Theme::INK_DIM);
 
-    const float cl = ctx.claude ? (ctx.settings->claudeWeeklyHero ? ctx.claude->weeklyPct : ctx.claude->sessionPct) : -1;
+    const float cl = ctx.claude ? Api::claudeHeroPct(*ctx.settings, *ctx.claude) : -1;
     const float cx = ctx.codex  ? Api::codexHeroPct(*ctx.settings, *ctx.codex) : -1;
 
     // ── Two big numbers side by side, design-true VLW typography ──
@@ -118,6 +132,10 @@ void chAiDashDraw(const ChannelCtx& ctx) {
     paintResetRow(158, "CL", Theme::CORAL, clReset);
     paintResetRow(174, "CX", Theme::LILAC, cxReset);
 
+    char advice[32];
+    Api::adviceText(*ctx.claude, *ctx.codex, advice, sizeof(advice));
+    paintAdvice(advice);
+
     // Seed cache
     s_cl = (cl < 0) ? -2.f : cl;
     s_cx = (cx < 0) ? -2.f : cx;
@@ -129,7 +147,7 @@ void chAiDashDraw(const ChannelCtx& ctx) {
 void chAiDashTick(const ChannelCtx& ctx) {
     const bool clLoading = ctx.claude && claudeLoading(*ctx.claude);
     const bool cxLoading = ctx.codex  && codexLoading(*ctx.codex);
-    const float cl = ctx.claude ? (ctx.settings->claudeWeeklyHero ? ctx.claude->weeklyPct : ctx.claude->sessionPct) : -1.f;
+    const float cl = ctx.claude ? Api::claudeHeroPct(*ctx.settings, *ctx.claude) : -1.f;
     const float cx = ctx.codex  ? Api::codexHeroPct(*ctx.settings, *ctx.codex) : -1.f;
     const int lit = (ctx.now_ms / 150) % 3;
 
@@ -182,5 +200,8 @@ void chAiDashTick(const ChannelCtx& ctx) {
             paintResetRow(174, "CX", Theme::LILAC, cxReset);
             strncpy(s_cxReset, cxFresh.c_str(), sizeof(s_cxReset) - 1);
         }
+        char advice[32];
+        Api::adviceText(*ctx.claude, *ctx.codex, advice, sizeof(advice));
+        if (strcmp(advice, s_advice) != 0) paintAdvice(advice);
     }
 }

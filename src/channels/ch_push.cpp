@@ -34,8 +34,13 @@ void pushCardSet(const char* title, const char* value, const char* subtitle,
 
 void pushCardClear() { g_card.active = false; }
 
+extern bool mainNightFace();
+
+// Quiet hours: while the night face is up (night mode "clock" or "dark"),
+// only red/alert cards interrupt — anything else expires unseen.
 bool chPushEnabled(const ChannelCtx& ctx) {
-    return g_card.active && (int32_t)(g_card.expiresAt - millis()) > 0;
+    if (!g_card.active || (int32_t)(g_card.expiresAt - millis()) <= 0) return false;
+    return !mainNightFace() || g_card.color == Theme::CORAL;
 }
 
 static void paintPushBar() {

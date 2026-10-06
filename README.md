@@ -15,18 +15,22 @@
 
 | Channel | What |
 |---|---|
-| **Home** | At-a-glance clock + weather + Claude/Codex usage meters + 24-hour timeline |
-| **Clock** | Big VT323 digital clock, day-of-week, greeting |
-| **Weather Now** | Hero temp, feels/humidity/wind, 3-day mini cards |
-| **5-day Forecast** | Range-bar rows showing min/max + condition |
-| **Claude usage** | 5-hour window % + weekly % + reset countdowns |
-| **Codex usage** | Primary % + secondary % + credits/reset |
-| **AI Today** | Combined Claude+Codex card with 7-day mini chart |
-| **Info** | IP / SSID / signal / uptime / heap / CPU / firmware |
+| **Home** | At-a-glance clock + weather + Claude/Codex usage meters + 24-hour timeline + rain hint |
+| **Clock** | Big VT323 digital clock (12/24 h), day-of-week, greeting |
+| **Weather Now** | Hero temp, feels/humidity/wind/UV, next sunrise/sunset, day/night icons, 3-day mini cards |
+| **3-day Forecast** | Range-bar rows showing min/max + condition |
+| **Claude usage** | 5-hour window % + weekly % + reset countdowns + per-model windows + weekly pace |
+| **Codex usage** | Weekly % + per-model limit + credits/reset + 24-hour history + weekly pace |
+| **AI Today** | Combined Claude+Codex card with resets and "which to use next" advice |
+| **Trend** | 7-day bars of weekly allowance used per day, per provider |
+| **Info** | IP / SSID / signal / uptime / heap / max block / firmware |
+| **Night face** | Dim clock-only face for the night window (optional) |
 | **Push cards** | One-shot notification cards via `POST /push` |
 
 All channels render via region-based partial repaints — no flickering
-between data updates.
+between data updates. Data that has gone stale stays on screen, dimmed,
+with a `STALE 14M` badge; provider status-page incidents can show as a
+badge too (opt-in).
 
 ## Quick start — flash the prebuilt binaries (no toolchain)
 

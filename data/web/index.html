@@ -64,8 +64,41 @@
       <div class="info-row"><span class="k">Free heap</span><span class="v amber" x-text="state.heap != null ? Math.round(state.heap/1024) + 'K' : '—'"></span></div>
       <div class="info-row"><span class="k">Claude</span><span class="v" x-bind:class="state.claude_configured ? 'mint' : 'muted'" x-text="state.claude_configured ? 'configured' : 'not configured'"></span></div>
       <div class="info-row"><span class="k">Codex</span><span class="v" x-bind:class="state.codex_configured ? 'mint' : 'muted'" x-text="state.codex_configured ? 'configured' : 'not configured'"></span></div>
+      <div class="info-row"><span class="k">On screen</span><span class="v" x-text="state.active_channel || '—'"></span></div>
       <button x-on:click="triggerRefresh()" class="secondary" style="margin-top: 12px;"
               x-bind:disabled="refreshing" x-text="refreshing ? 'Refreshing...' : 'Refresh Now'"></button>
+      <div class="channel-switch">
+        <select x-model="switchTo">
+          <template x-for="c in channelNames" :key="c">
+            <option :value="c" x-text="c"></option>
+          </template>
+        </select>
+        <button type="button" class="secondary" x-on:click="showChannel(switchTo)">Show</button>
+        <button type="button" class="secondary" x-on:click="showChannel(null)">Next</button>
+      </div>
+    </article>
+
+    <article>
+      <h2>Diagnostics</h2>
+      <div class="info-row"><span class="k">Max heap block</span><span class="v" x-bind:class="(state.maxblk||0) < 20480 ? 'coral' : 'mint'" x-text="kb(state.maxblk)"></span></div>
+      <div class="info-row"><span class="k">Lowest max block</span><span class="v" x-text="state.min_maxblk > 1e9 ? '—' : kb(state.min_maxblk)"></span></div>
+      <div class="info-row"><span class="k">Heap-deferred fetches</span><span class="v" x-text="state.heap_refusals ?? '—'"></span></div>
+      <div class="info-row"><span class="k">Last reset</span><span class="v" x-text="state.reset_reason || '—'"></span></div>
+      <div class="info-row"><span class="k">Next fetch</span><span class="v" x-text="state.next_fetch_s != null ? 'in ' + state.next_fetch_s + 's' : '—'"></span></div>
+      <template x-for="[name, s] in Object.entries(state.sources || {})" :key="name">
+        <div class="info-row">
+          <span class="k" x-text="name"></span>
+          <span class="v" x-bind:class="sourceClass(s)" x-text="sourceText(s)"></span>
+        </div>
+      </template>
+      <template x-for="[name, v] in Object.entries(state.vendor_status || {})" :key="'vs-' + name">
+        <div class="info-row">
+          <span class="k" x-text="name + ' status'"></span>
+          <span class="v" x-bind:class="v.level === 'operational' ? 'mint' : (v.level === 'unknown' ? 'muted' : 'amber')"
+                x-text="v.description || v.level"></span>
+        </div>
+      </template>
+      <div class="hint" x-text="'build ' + (state.build || '—')"></div>
     </article>
 
     <article>
@@ -148,12 +181,17 @@
       <label class="row"><input type="checkbox" x-model="settings.showClaude">Claude usage</label>
       <label class="row"><input type="checkbox" x-model="settings.showCodex">Codex usage</label>
       <label class="row"><input type="checkbox" x-model="settings.showAiDash">AI dashboard</label>
+      <label class="row"><input type="checkbox" x-model="settings.showTrend">7-day usage trend</label>
       <label class="row"><input type="checkbox" x-model="settings.showInfo">Device info</label>
+      <label class="row"><input type="checkbox" x-model="settings.showStatus">Provider status badges</label>
+      <div class="hint">Checks status.claude.com and status.openai.com every 15 min and flags an incident in the Claude/Codex status bar. Costs two small HTTPS calls.</div>
       <h2 style="margin-top:1em">Hero metric</h2>
       <label class="row"><input type="checkbox" x-model="settings.claudeWeeklyHero">Claude: show weekly as hero</label>
-      <div class="hint">Claude shows the 5-hour session window as the large number by default; toggle to promote the weekly metric. Codex now reports a single weekly window (shown as the hero), with its per-model limit on the second row.</div>
+      <label class="row"><input type="checkbox" x-model="settings.codexWeeklyHero">Codex: show second window as hero</label>
+      <div class="hint">Claude shows the 5-hour session window as the large number by default; toggle to promote the weekly metric. Codex reports a single weekly window (the hero); its toggle only applies if a second real window returns.</div>
       <label class="row"><input type="checkbox" x-model="settings.autoRotate">Auto-rotate</label>
       <h2 style="margin-top:1em">Display</h2>
+      <label class="row"><input type="checkbox" x-model="settings.clock24h">24-hour clock</label>
       <label class="row"><input type="checkbox" x-model="settings.invertDisplay">Invert colors (panel polarity)</label>
       <div class="hint">If colors look wrong on your panel, toggle this. Takes effect immediately.</div>
     </article>
@@ -206,7 +244,7 @@
       <h2>Personalization</h2>
       <label>Your name</label>
       <input x-model="settings.userName" placeholder="Avi">
-      <div class="hint">Shown on boot splash and birthday card.</div>
+      <div class="hint">Shown on the boot greeting and the clock.</div>
       <label>Birthday (MM-DD)</label>
       <input x-model="settings.birthday" placeholder="07-15">
     </article>
@@ -230,20 +268,21 @@
       <div class="hint">Half-hour and 45-min zones supported (India, Nepal, Newfoundland, etc.).</div>
     </article>
     <article>
-      <h2>Night dim</h2>
-      <label class="row"><input type="checkbox" x-model="settings.nightDim">Dim screen at night</label>
-      <label>From hour</label>
-      <select x-model.number="settings.nightStart">
-        <template x-for="h in hours()" :key="h">
-          <option :value="h" x-text="h + ':00'"></option>
-        </template>
+      <h2>Night</h2>
+      <label>At night</label>
+      <select x-model.number="settings.nightMode">
+        <option value="0">Do nothing</option>
+        <option value="1">Dim, keep rotating</option>
+        <option value="2">Dim clock only</option>
+        <option value="3">Screen off</option>
       </select>
-      <label>Until hour</label>
-      <select x-model.number="settings.nightEnd">
-        <template x-for="h in hours()" :key="h">
-          <option :value="h" x-text="h + ':00'"></option>
-        </template>
-      </select>
+      <div class="hint">"Dim clock only" and "Screen off" pause rotation; only red push cards interrupt (and briefly wake a dark screen).</div>
+      <label>From</label>
+      <input type="time" x-bind:value="minToHHMM(settings.nightStartMin)"
+             x-on:change="settings.nightStartMin = hhmmToMin($event.target.value)">
+      <label>Until</label>
+      <input type="time" x-bind:value="minToHHMM(settings.nightEndMin)"
+             x-on:change="settings.nightEndMin = hhmmToMin($event.target.value)">
       <label>Night brightness</label>
       <select x-model.number="settings.nightBright">
         <option value="5">5%</option>
@@ -264,7 +303,7 @@
         <input x-bind:type="show ? 'text' : 'password'" x-model="settings.apiToken" placeholder="leave blank for unauthenticated">
         <button type="button" class="toggle-vis" x-on:click="show=!show" x-text="show ? 'hide' : 'show'"></button>
       </div>
-      <div class="hint">When set, <code>/push</code> and <code>/mcp</code> require <code>Authorization: Bearer &lt;token&gt;</code>.</div>
+      <div class="hint">When set, <code>/push</code>, <code>/mcp</code>, <code>/api/refresh</code> and <code>/api/channel</code> require <code>Authorization: Bearer &lt;token&gt;</code>. The device never sends the token back, so this browser remembers the one you type here for its own calls.</div>
       <button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button>
     </article>
     <article>
@@ -323,6 +362,24 @@ function app() {
     refreshing: false,
     weatherCity: '',
     cityResults: [],
+    switchTo: 'Home',
+    channelNames: ['Home', 'Claude', 'Codex', 'AI', 'Trend', 'Weather', 'Forecast', 'Clock', 'Info'],
+
+    // The device masks the API token as "***" on read. The real value is kept
+    // in this browser (saved when the user types it) for authenticated calls.
+    localToken() {
+      const t = this.settings.apiToken;
+      if (t && t !== '***') return t;
+      try { return localStorage.getItem('glimmer.apiToken') || ''; } catch (e) { return ''; }
+    },
+    authHeaders(extra = {}) {
+      let t = this.localToken();
+      if (!t && this.settings.apiToken === '***') {
+        t = prompt('API token for this device') || '';
+        if (t) { try { localStorage.setItem('glimmer.apiToken', t); } catch (e) {} }
+      }
+      return t ? {...extra, Authorization: 'Bearer ' + t} : extra;
+    },
 
     async boot() {
       await this.refreshState();
@@ -347,6 +404,10 @@ function app() {
 
     async saveSettings(restart) {
       this.saving = true;
+      const t = this.settings.apiToken;
+      if (t !== '***') {
+        try { t ? localStorage.setItem('glimmer.apiToken', t) : localStorage.removeItem('glimmer.apiToken'); } catch (e) {}
+      }
       try {
         const r = await fetch('/api/settings', {
           method: 'POST',
@@ -365,8 +426,7 @@ function app() {
 
     async sendPush() {
       try {
-        const headers = {'Content-Type': 'application/json'};
-        if (this.settings.apiToken) headers['Authorization'] = 'Bearer ' + this.settings.apiToken;
+        const headers = this.authHeaders({'Content-Type': 'application/json'});
         const r = await fetch('/push', {
           method: 'POST', headers,
           body: JSON.stringify(this.pushForm)
@@ -379,13 +439,52 @@ function app() {
     async triggerRefresh() {
       this.refreshing = true;
       try {
-        const headers = {};
-        if (this.settings.apiToken) headers['Authorization'] = 'Bearer ' + this.settings.apiToken;
-        const r = await fetch('/api/refresh', {method: 'POST', headers});
+        const r = await fetch('/api/refresh', {method: 'POST', headers: this.authHeaders()});
         if (r.ok) this.showToast('Refresh triggered');
-        else this.showToast('Refresh failed', true);
+        else this.showToast('Refresh failed (HTTP ' + r.status + ')', true);
       } catch (e) { this.showToast('Network error', true); }
       finally { this.refreshing = false; }
+    },
+
+    async showChannel(name) {
+      try {
+        const r = await fetch('/api/channel', {
+          method: 'POST',
+          headers: this.authHeaders({'Content-Type': 'application/json'}),
+          body: JSON.stringify(name ? {name} : {action: 'next'})
+        });
+        if (r.ok) { const d = await r.json(); this.showToast('Showing ' + d.active); this.refreshState(); }
+        else if (r.status === 404) this.showToast(name + ' is not enabled', true);
+        else this.showToast('Switch failed (HTTP ' + r.status + ')', true);
+      } catch (e) { this.showToast('Network error', true); }
+    },
+
+    kb(n) { return n != null ? Math.round(n / 1024) + 'K' : '—'; },
+    ago(epoch) {
+      if (!epoch) return 'never';
+      const s = Math.max(0, Math.round(Date.now() / 1000 - epoch));
+      if (s < 90) return s + 's ago';
+      if (s < 5400) return Math.round(s / 60) + 'm ago';
+      return Math.round(s / 3600) + 'h ago';
+    },
+    sourceText(s) {
+      if (s.auth_bad) return 'token rejected (' + s.code + ')';
+      let t = s.valid ? 'ok · ' + this.ago(s.last_ok) : (s.err || 'waiting');
+      if (s.fails) t += ' · ' + s.fails + ' fail' + (s.fails > 1 ? 's' : '') + ', retry ' + s.backoff_s + 's';
+      return t;
+    },
+    sourceClass(s) {
+      if (s.auth_bad) return 'coral';
+      if (s.fails) return 'amber';
+      return s.valid ? 'mint' : 'muted';
+    },
+    minToHHMM(m) {
+      m = m || 0;
+      return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+    },
+    hhmmToMin(v) {
+      const [h, m] = (v || '0:0').split(':').map(Number);
+      return (h || 0) * 60 + (m || 0);
     },
 
     async factoryReset() {
@@ -460,7 +559,6 @@ function app() {
       return m + 'm';
     },
 
-    hours() { return Array.from({length: 24}, (_, i) => i); },
     tzRange() { return Array.from({length: 27}, (_, i) => i - 12); },
     tzZones() {
       // Minute-precision timezone list. Includes half-hour and 45-min zones.
@@ -486,8 +584,15 @@ function app() {
       return z.map(([min, label]) => ({min, label}));
     },
 
+    // Snippet token: the locally known value, or a placeholder when the device
+    // has one set but this browser doesn't know it.
+    snippetToken() {
+      return this.localToken() || (this.settings.apiToken === '***' ? '<your-token>' : '');
+    },
+
     curlSnippet() {
-      const auth = this.settings.apiToken ? `\n  -H "Authorization: Bearer ${this.settings.apiToken}" \\` : '';
+      const tok = this.snippetToken();
+      const auth = tok ? `\n  -H "Authorization: Bearer ${tok}" \\` : '';
       return `curl -X POST http://${this.state.ip || 'glimmer.local'}/push \\${auth}
   -H "Content-Type: application/json" \\
   -d '{"title":"Hello","value":"world","color":"mint","duration_s":30}'`;
@@ -495,7 +600,8 @@ function app() {
 
     mcpSnippet() {
       const url = `http://${this.state.ip || 'glimmer.local'}/mcp`;
-      const auth = this.settings.apiToken ? `,\n        "headers": {"Authorization": "Bearer ${this.settings.apiToken}"}` : '';
+      const tok = this.snippetToken();
+      const auth = tok ? `,\n        "headers": {"Authorization": "Bearer ${tok}"}` : '';
       return `{
   "mcpServers": {
     "glimmer": {

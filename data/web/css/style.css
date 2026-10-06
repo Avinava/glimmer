@@ -200,6 +200,13 @@ input:focus, select:focus, textarea:focus {
 .info-row .v.sky    { color: var(--sky);    }
 .info-row .v.lilac  { color: var(--lilac);  }
 .info-row .v.coral  { color: var(--coral);  }
+.info-row .v.muted  { color: var(--muted);  }
+.info-row .v { text-align: right; overflow-wrap: anywhere; margin-left: 12px; }
+
+/* Manual channel switch (status page) */
+.channel-switch { display: flex; gap: 8px; margin-top: 8px; }
+.channel-switch select { flex: 1; margin: 0; }
+.channel-switch button { width: auto; margin: 0; }
 
 /* Mini live preview of the device screen */
 .tv-preview {
