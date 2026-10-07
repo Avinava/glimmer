@@ -44,9 +44,9 @@ void chSetupDraw(const ChannelCtx& ctx) {
     tft.drawString("FINISH SETTING UP", SCREEN_W / 2, 40);
 
     const Settings& s = *ctx.settings;
-    checkRow(62,  !s.claudeKey.isEmpty(),       "Claude key",  "Tokens tab");
-    checkRow(84,  !s.codexToken.isEmpty(),      "Codex token", "Tokens tab");
-    checkRow(106, Weather::configured(s),        "Weather",     "Channels tab");
+    checkRow(62,  !s.claudeKey.isEmpty(),       "Claude key",  "Accounts");
+    checkRow(84,  !s.codexToken.isEmpty(),      "Codex token", "Accounts");
+    checkRow(106, Weather::configured(s),        "Weather",     "Place & time");
 
     Display::dotsDivider(30, 140, SCREEN_W - 60);
 

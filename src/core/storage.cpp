@@ -66,7 +66,6 @@ Settings Storage::load() {
     s.showWeather   = doc["show_weather"]   | true;
     s.useFahrenheit = doc["fahrenheit"]     | false;
     s.userName      = doc["user_name"]      | "";
-    s.birthday      = doc["birthday"]       | "";
     s.apiToken      = doc["api_token"]      | "";
     return s;
 }
@@ -116,7 +115,6 @@ bool Storage::save(const Settings& s) {
     doc["show_weather"] = s.showWeather;
     doc["fahrenheit"]   = s.useFahrenheit;
     doc["user_name"]    = s.userName;
-    doc["birthday"]     = s.birthday;
     doc["api_token"]    = s.apiToken;
     return writeAtomic([&](File& f) { return serializeJson(doc, f); });
 }

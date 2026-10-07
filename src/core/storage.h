@@ -45,7 +45,6 @@ struct Settings {
 
     // Personalization
     String   userName;                // shown on the greeting splash + clock
-    String   birthday;                // MM-DD format, e.g. "07-15"
 
     // Push API auth (also used for MCP)
     String   apiToken;                // bearer token for /push and /mcp

@@ -203,7 +203,15 @@ input:focus, select:focus, textarea:focus {
 .info-row .v.muted  { color: var(--muted);  }
 .info-row .v { text-align: right; overflow-wrap: anywhere; margin-left: 12px; }
 
-/* Credential status chip (tokens page) */
+/* Channel toggles with requirement (screen page) */
+.channel-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.channel-row label.row { margin: 0; }
+.channel-row .needs { font-size: 0.75rem; white-space: nowrap; }
+.channel-row .needs.ok { color: var(--muted); }
+.channel-row .needs.missing { color: var(--amber); }
+.night-window.disabled { opacity: 0.45; }
+
+/* Credential status chip (accounts page) */
 .cred-chip { font-size: 0.8rem; margin: -4px 0 12px; }
 .cred-chip.mint  { color: var(--mint); }
 .cred-chip.amber { color: var(--amber); }

@@ -219,7 +219,6 @@ static void handleApiGetSettings() {
     d["weatherLon"]    = s.weatherLon;
     d["useFahrenheit"] = s.useFahrenheit;
     d["userName"]      = s.userName;
-    d["birthday"]      = s.birthday;
     String out; serializeJson(d, out);
     server.send(200, "application/json", out);
 }
@@ -239,7 +238,6 @@ static void applyIfPresent(Settings& s, JsonDocument& d) {
     applyStr("codexModelLabel",  s.codexModelLabel);
     applyStr("apiToken",      s.apiToken);
     applyStr("userName",      s.userName);
-    applyStr("birthday",      s.birthday);
 
     auto applyU32 = [&](const char* k, uint32_t& dst, uint32_t lo, uint32_t hi) {
         if (d[k].is<int>() || d[k].is<unsigned int>()) {

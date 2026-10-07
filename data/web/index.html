@@ -45,9 +45,9 @@
   <nav class="tv-nav">
     <button x-bind:class="{active: page==='status'}"   x-on:click="page='status'">Status</button>
     <button x-bind:class="{active: page==='wifi'}"     x-on:click="page='wifi'">Wi-Fi</button>
-    <button x-bind:class="{active: page==='tokens'}"   x-on:click="page='tokens'">Tokens</button>
-    <button x-bind:class="{active: page==='channels'}" x-on:click="page='channels'">Channels</button>
-    <button x-bind:class="{active: page==='you'}"      x-on:click="page='you'">You</button>
+    <button x-bind:class="{active: page==='accounts'}" x-on:click="page='accounts'">Accounts</button>
+    <button x-bind:class="{active: page==='screen'}"   x-on:click="page='screen'">Screen</button>
+    <button x-bind:class="{active: page==='place'}"    x-on:click="page='place'">Place &amp; time</button>
     <button x-bind:class="{active: page==='push'}"     x-on:click="page='push'">Push &amp; MCP</button>
     <button x-bind:class="{active: page==='device'}"   x-on:click="page='device'">Device</button>
   </nav>
@@ -141,8 +141,8 @@
     </article>
   </section>
 
-  <!-- TOKENS -->
-  <section x-show="page==='tokens'">
+  <!-- ACCOUNTS — everything about one provider in one card -->
+  <section x-show="page==='accounts'" class="split">
     <article>
       <h2>Claude</h2>
       <div class="cred-chip" x-bind:class="credChip('claude').cls" x-text="credChip('claude').text"></div>
@@ -151,7 +151,12 @@
         <input x-bind:type="show ? 'text' : 'password'" x-model="settings.claudeKey" placeholder="sk-ant-sid02-...">
         <button type="button" class="toggle-vis" x-on:click="show=!show" x-text="show ? 'hide' : 'show'"></button>
       </div>
-      <div class="hint">claude.ai → DevTools → Application → Cookies → <code>sessionKey</code></div>
+      <div class="hint">claude.ai → DevTools → Application → Cookies → <code>sessionKey</code>. It has no visible expiry; the device tells you when claude.ai stops accepting it.</div>
+      <label>Large number shows</label>
+      <select x-model="claudeHero">
+        <option value="session">5-hour session window</option>
+        <option value="weekly">Weekly window</option>
+      </select>
     </article>
     <article>
       <h2>Codex</h2>
@@ -161,63 +166,105 @@
         <input x-bind:type="show ? 'text' : 'password'" x-model="settings.codexToken" placeholder="eyJ...">
         <button type="button" class="toggle-vis" x-on:click="show=!show" x-text="show ? 'hide' : 'show'"></button>
       </div>
-      <div class="hint">chatgpt.com → DevTools → Network → any <code>backend-api</code> request → <code>authorization</code> header (value after "Bearer ")</div>
+      <div class="hint">chatgpt.com → DevTools → Network → any <code>backend-api</code> request → <code>authorization</code> header (value after "Bearer "). The device reads its expiry and warns 3 days ahead.</div>
       <label>Device ID</label>
       <input x-model="settings.codexDeviceId" placeholder="uuid">
       <div class="hint">Same request → <code>oai-device-id</code> header.</div>
       <label>Model label</label>
-      <input x-model="settings.codexModelLabel" placeholder="GPT-5" maxlength="11">
-      <div class="hint">Shown in the Codex channel status bar. Leave blank to hide.</div>
+      <input x-model="settings.codexModelLabel" placeholder="GPT-5" maxlength="10">
+      <div class="hint">Shown at the right of the Codex status bar (≤ 10 characters). Leave blank to hide.</div>
+      <label class="row"><input type="checkbox" x-model="settings.codexWeeklyHero">Show the second window as the large number</label>
+      <div class="hint">Only matters if Codex reports two time windows again — today it reports one weekly window, which is always the large number.</div>
+    </article>
+    <article>
+      <h2>Both</h2>
+      <label>Check usage every</label>
+      <select x-model.number="settings.refreshMin">
+        <template x-for="o in withCurrent([1, 2, 5, 10, 15, 30, 60], settings.refreshMin)" :key="o">
+          <option :value="o" x-text="o + ' min'" :selected="o === settings.refreshMin"></option>
+        </template>
+      </select>
+      <div class="hint">Each check is one HTTPS call per account. Weather follows this too, but never more often than every 10 min.</div>
+      <label class="row"><input type="checkbox" x-model="settings.showStatus">Flag provider outages</label>
+      <div class="hint">Checks status.claude.com and status.openai.com every 15 min and shows <code>DEGRADED</code> / <code>OUTAGE</code> in the Claude and Codex status bars. Two small extra HTTPS calls.</div>
     </article>
     <button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button>
   </section>
 
-  <!-- CHANNELS -->
-  <section x-show="page==='channels'" class="split">
+  <!-- SCREEN — what is shown, how it moves, how it looks, at night -->
+  <section x-show="page==='screen'" class="split">
     <article>
-      <h2>Visible channels</h2>
-      <label class="row"><input type="checkbox" x-model="settings.showHome">Home dashboard</label>
-      <label class="row"><input type="checkbox" x-model="settings.showClock">Clock</label>
-      <label class="row"><input type="checkbox" x-model="settings.showWeather">Weather now</label>
-      <label class="row"><input type="checkbox" x-model="settings.showForecast">3-day forecast</label>
-      <label class="row"><input type="checkbox" x-model="settings.showClaude">Claude usage</label>
-      <label class="row"><input type="checkbox" x-model="settings.showCodex">Codex usage</label>
-      <label class="row"><input type="checkbox" x-model="settings.showAiDash">AI dashboard</label>
-      <label class="row"><input type="checkbox" x-model="settings.showTrend">7-day usage trend</label>
-      <label class="row"><input type="checkbox" x-model="settings.showInfo">Device info</label>
-      <label class="row"><input type="checkbox" x-model="settings.showStatus">Provider status badges</label>
-      <div class="hint">Checks status.claude.com and status.openai.com every 15 min and flags an incident in the Claude/Codex status bar. Costs two small HTTPS calls.</div>
-      <h2 style="margin-top:1em">Hero metric</h2>
-      <label class="row"><input type="checkbox" x-model="settings.claudeWeeklyHero">Claude: show weekly as hero</label>
-      <label class="row"><input type="checkbox" x-model="settings.codexWeeklyHero">Codex: show second window as hero</label>
-      <div class="hint">Claude shows the 5-hour session window as the large number by default; toggle to promote the weekly metric. Codex reports a single weekly window (the hero); its toggle only applies if a second real window returns.</div>
-      <label class="row"><input type="checkbox" x-model="settings.autoRotate">Auto-rotate</label>
-      <h2 style="margin-top:1em">Display</h2>
-      <label class="row"><input type="checkbox" x-model="settings.clock24h">24-hour clock</label>
-      <label class="row"><input type="checkbox" x-model="settings.invertDisplay">Invert colors (panel polarity)</label>
-      <div class="hint">If colors look wrong on your panel, toggle this. Takes effect immediately.</div>
+      <h2>Channels</h2>
+      <template x-for="c in channelToggles()" :key="c.key">
+        <div class="channel-row">
+          <label class="row"><input type="checkbox" x-model="settings[c.key]"><span x-text="c.label"></span></label>
+          <span class="needs" x-bind:class="c.ready ? 'ok' : 'missing'" x-text="c.needs"></span>
+        </div>
+      </template>
+      <div class="hint">In rotation order. A channel whose requirement is missing stays hidden even when ticked. Night, Setup and push cards are shown automatically.</div>
     </article>
     <article>
-      <h2>Timing</h2>
-      <label>Refresh interval</label>
-      <select x-model.number="settings.refreshMin">
-        <option value="1">1 min</option>
-        <option value="2">2 min</option>
-        <option value="5">5 min</option>
-        <option value="10">10 min</option>
-        <option value="15">15 min</option>
-        <option value="30">30 min</option>
+      <h2>Rotation</h2>
+      <label class="row"><input type="checkbox" x-model="settings.autoRotate">Rotate through channels</label>
+      <label>Each channel for</label>
+      <select x-model.number="settings.channelSec" x-bind:disabled="!settings.autoRotate">
+        <template x-for="o in withCurrent([3, 5, 8, 10, 15, 20, 30, 60], settings.channelSec)" :key="o">
+          <option :value="o" x-text="o + ' sec'" :selected="o === settings.channelSec"></option>
+        </template>
       </select>
-      <label>Auto-rotate every</label>
-      <select x-model.number="settings.channelSec">
-        <option value="3">3 sec</option>
-        <option value="5">5 sec</option>
-        <option value="8">8 sec</option>
-        <option value="10">10 sec</option>
-        <option value="15">15 sec</option>
-        <option value="20">20 sec</option>
-        <option value="30">30 sec</option>
+      <h2 style="margin-top:1em">Look</h2>
+      <label>Brightness</label>
+      <select x-model.number="settings.brightness">
+        <template x-for="o in withCurrent([10, 25, 50, 75, 80, 100], settings.brightness)" :key="o">
+          <option :value="o" x-text="o + '%' + (o === 80 ? ' (default)' : '')" :selected="o === settings.brightness"></option>
+        </template>
       </select>
+      <label class="row"><input type="checkbox" x-model="settings.clock24h">24-hour clock</label>
+      <label class="row"><input type="checkbox" x-model="settings.invertDisplay">Invert colors (panel polarity)</label>
+      <div class="hint">Only if colors look washed out or cream on your panel. Takes effect on save.</div>
+    </article>
+    <article>
+      <h2>Night</h2>
+      <label>At night</label>
+      <select x-model.number="settings.nightMode">
+        <option value="0">Do nothing</option>
+        <option value="1">Dim, keep rotating</option>
+        <option value="2">Dim clock only</option>
+        <option value="3">Screen off</option>
+      </select>
+      <div class="hint" x-show="settings.nightMode >= 2">Rotation pauses; only red push cards interrupt (and briefly wake a dark screen). Device notices wait until morning.</div>
+      <div class="night-window" x-bind:class="{disabled: !settings.nightMode}">
+        <label>From</label>
+        <input type="time" x-bind:disabled="!settings.nightMode" x-bind:value="minToHHMM(settings.nightStartMin)"
+               x-on:change="settings.nightStartMin = hhmmToMin($event.target.value)">
+        <label>Until</label>
+        <input type="time" x-bind:disabled="!settings.nightMode" x-bind:value="minToHHMM(settings.nightEndMin)"
+               x-on:change="settings.nightEndMin = hhmmToMin($event.target.value)">
+      </div>
+      <label>Night brightness</label>
+      <select x-model.number="settings.nightBright" x-bind:disabled="settings.nightMode !== 1 && settings.nightMode !== 2">
+        <template x-for="o in withCurrent([5, 10, 15, 30, 50], settings.nightBright)" :key="o">
+          <option :value="o" x-text="o + '%'" :selected="o === settings.nightBright"></option>
+        </template>
+      </select>
+    </article>
+    <button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button>
+  </section>
+
+  <!-- PLACE & TIME -->
+  <section x-show="page==='place'" class="split">
+    <article>
+      <h2>You</h2>
+      <label>Your name</label>
+      <input x-model="settings.userName" placeholder="Avi" maxlength="16">
+      <div class="hint">Shown on the boot greeting and the Clock channel ("good morning, Avi").</div>
+      <label>Timezone</label>
+      <select x-model.number="settings.tzMinutes">
+        <template x-for="tz in withCurrentTz(settings.tzMinutes)" :key="tz.min">
+          <option :value="tz.min" x-text="tz.label" :selected="tz.min === settings.tzMinutes"></option>
+        </template>
+      </select>
+      <div class="hint">A fixed offset (no automatic daylight-saving switch). Half-hour and 45-min zones supported.</div>
     </article>
     <article>
       <h2>Weather</h2>
@@ -231,67 +278,12 @@
         </div>
       </template>
       <label>Latitude</label>
-      <input x-model.number="settings.weatherLat" placeholder="22.5726">
+      <input type="number" step="0.0001" x-model.number="settings.weatherLat" placeholder="22.5726">
       <label>Longitude</label>
-      <input x-model.number="settings.weatherLon" placeholder="88.3639">
-      <div class="hint">Search a city above or enter coordinates directly from openstreetmap.org.</div>
+      <input type="number" step="0.0001" x-model.number="settings.weatherLon" placeholder="88.3639">
+      <div class="hint" x-text="hasLocation() ? 'Weather, Forecast and the Home weather column use this location.' : 'No location set — Weather and Forecast stay hidden.'"></div>
+      <button type="button" class="secondary" x-show="hasLocation()" x-on:click="clearLocation()">Clear location</button>
       <label class="row"><input type="checkbox" x-model="settings.useFahrenheit">Show °F (instead of °C)</label>
-    </article>
-    <button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button>
-  </section>
-
-  <!-- YOU -->
-  <section x-show="page==='you'" class="split">
-    <article>
-      <h2>Personalization</h2>
-      <label>Your name</label>
-      <input x-model="settings.userName" placeholder="Avi">
-      <div class="hint">Shown on the boot greeting and the clock.</div>
-      <label>Birthday (MM-DD)</label>
-      <input x-model="settings.birthday" placeholder="07-15">
-    </article>
-    <article>
-      <h2>Display</h2>
-      <label>Brightness</label>
-      <select x-model.number="settings.brightness">
-        <option value="10">10%</option>
-        <option value="25">25%</option>
-        <option value="50">50%</option>
-        <option value="75">75%</option>
-        <option value="80">80% (default)</option>
-        <option value="100">100%</option>
-      </select>
-      <label>Timezone</label>
-      <select x-model.number="settings.tzMinutes">
-        <template x-for="tz in tzZones()" :key="tz.min">
-          <option :value="tz.min" x-text="tz.label"></option>
-        </template>
-      </select>
-      <div class="hint">Half-hour and 45-min zones supported (India, Nepal, Newfoundland, etc.).</div>
-    </article>
-    <article>
-      <h2>Night</h2>
-      <label>At night</label>
-      <select x-model.number="settings.nightMode">
-        <option value="0">Do nothing</option>
-        <option value="1">Dim, keep rotating</option>
-        <option value="2">Dim clock only</option>
-        <option value="3">Screen off</option>
-      </select>
-      <div class="hint">"Dim clock only" and "Screen off" pause rotation; only red push cards interrupt (and briefly wake a dark screen).</div>
-      <label>From</label>
-      <input type="time" x-bind:value="minToHHMM(settings.nightStartMin)"
-             x-on:change="settings.nightStartMin = hhmmToMin($event.target.value)">
-      <label>Until</label>
-      <input type="time" x-bind:value="minToHHMM(settings.nightEndMin)"
-             x-on:change="settings.nightEndMin = hhmmToMin($event.target.value)">
-      <label>Night brightness</label>
-      <select x-model.number="settings.nightBright">
-        <option value="5">5%</option>
-        <option value="15">15%</option>
-        <option value="30">30%</option>
-        <option value="50">50%</option>
-      </select>
     </article>
     <button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button>
   </section>
@@ -366,6 +358,44 @@ function app() {
     cityResults: [],
     switchTo: 'Home',
     channelNames: ['Home', 'Claude', 'Codex', 'AI', 'Trend', 'Weather', 'Forecast', 'Clock', 'Info', 'Setup'],
+
+    // Claude hero as a two-way choice instead of a bare checkbox.
+    get claudeHero() { return this.settings.claudeWeeklyHero ? 'weekly' : 'session'; },
+    set claudeHero(v) { this.settings.claudeWeeklyHero = (v === 'weekly'); },
+
+    // Preset list plus the stored value, so a value set via API/import (the
+    // firmware accepts any value in range) still shows — and survives a save.
+    withCurrent(list, cur) {
+      const v = Number(cur);
+      if (!Number.isFinite(v) || list.includes(v)) return list;
+      return [...list, v].sort((a, b) => a - b);
+    },
+    withCurrentTz(cur) {
+      const z = this.tzZones();
+      if (cur == null || z.some(t => t.min === cur)) return z;
+      const sign = cur < 0 ? '-' : '+', a = Math.abs(cur);
+      const label = `UTC${sign}${String(Math.floor(a / 60)).padStart(2, '0')}:${String(a % 60).padStart(2, '0')}`;
+      return [...z, {min: cur, label}].sort((x, y) => x.min - y.min);
+    },
+
+    hasLocation() { return !!(this.settings.weatherLat || this.settings.weatherLon); },
+    clearLocation() { this.settings.weatherLat = 0; this.settings.weatherLon = 0; this.weatherCity = ''; },
+
+    // Channel toggles in the device's rotation order, with what each needs.
+    channelToggles() {
+      const st = this.settings, cl = !!st.claudeKey, cx = !!st.codexToken, loc = this.hasLocation();
+      return [
+        {key: 'showHome',     label: 'Home dashboard', needs: 'ready', ready: true},
+        {key: 'showClaude',   label: 'Claude usage',   needs: cl ? 'ready' : 'needs Claude key', ready: cl},
+        {key: 'showCodex',    label: 'Codex usage',    needs: cx ? 'ready' : 'needs Codex token', ready: cx},
+        {key: 'showAiDash',   label: 'AI dashboard',   needs: cl && cx ? 'ready' : 'needs both accounts', ready: cl && cx},
+        {key: 'showTrend',    label: '7-day trend',    needs: cl || cx ? 'fills in over days' : 'needs an account', ready: cl || cx},
+        {key: 'showWeather',  label: 'Weather now',    needs: loc ? 'ready' : 'needs location', ready: loc},
+        {key: 'showForecast', label: '3-day forecast', needs: loc ? 'ready' : 'needs location', ready: loc},
+        {key: 'showClock',    label: 'Clock',          needs: 'ready', ready: true},
+        {key: 'showInfo',     label: 'Device info',    needs: 'ready', ready: true},
+      ];
+    },
 
     // The device masks the API token as "***" on read. The real value is kept
     // in this browser (saved when the user types it) for authenticated calls.
@@ -469,7 +499,7 @@ function app() {
       if (s < 5400) return Math.round(s / 60) + 'm ago';
       return Math.round(s / 3600) + 'h ago';
     },
-    // Plain-language credential status for the Tokens tab.
+    // Plain-language credential status for the Accounts tab.
     credChip(name) {
       const s = (this.state.sources || {})[name] || {};
       const exp = s.expires_at ? new Date(s.expires_at * 1000) : null;
