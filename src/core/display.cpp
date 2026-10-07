@@ -72,16 +72,51 @@ static const uint16_t LOGO_ROWS[16] = {
     0x0000, 0x0000, 0x0000, 0x0000,
 };
 
-void Display::drawLogo(int x, int y, uint16_t color) {
+void Display::drawGlyph16(const uint16_t rows[16], int x, int y, uint16_t color, int scale) {
     for (int row = 0; row < 16; row++) {
-        uint16_t bits = LOGO_ROWS[row];
+        uint16_t bits = rows[row];
         if (!bits) continue;
         for (int col = 0; col < 16; col++) {
-            if (bits & (1 << (15 - col))) {
-                tft.drawPixel(x + col, y + row, color);
-            }
+            if (!(bits & (1 << (15 - col)))) continue;
+            if (scale <= 1) tft.drawPixel(x + col, y + row, color);
+            else tft.fillRect(x + col * scale, y + row * scale, scale, scale, color);
         }
     }
+}
+
+void Display::drawLogo(int x, int y, uint16_t color) {
+    drawGlyph16(LOGO_ROWS, x, y, color);
+}
+
+// ── key — ring on the left, shaft + two teeth to the right ──
+//   ................
+//   ................
+//   ................
+//   ..####..........
+//   .#....#.........
+//   #......#........
+//   #......########.
+//   #......########.
+//   #......#...##.#.
+//   .#....#....##.#.
+//   ..####..........
+static const uint16_t KEY_ROWS[16] = {
+    0x0000, 0x0000, 0x0000, 0x3C00,
+    0x4200, 0x8100, 0x81FE, 0x81FE,
+    0x811A, 0x421A, 0x3C00, 0x0000,
+    0x0000, 0x0000, 0x0000, 0x0000,
+};
+
+void Display::drawKeyGlyph(int x, int y, uint16_t color, int scale) {
+    drawGlyph16(KEY_ROWS, x, y, color, scale);
+}
+
+// Circle with a diagonal slash, ~30 px across, 2 px stroke.
+void Display::drawBlockedGlyph(int cx, int cy, uint16_t color) {
+    tft.drawCircle(cx, cy, 14, color);
+    tft.drawCircle(cx, cy, 13, color);
+    for (int d = -1; d <= 1; d++)
+        tft.drawLine(cx - 9 + d, cy + 9, cx + 9 + d, cy - 9, color);
 }
 
 void Display::setFont(FontTier t) { useFont(nameFor(t)); }
@@ -341,7 +376,7 @@ void Display::drawOtaProgress(uint8_t pct) {
 // ── Design-system primitives (v0.8) ─────────────────────────────────────────
 
 void Display::statusBar(const char* title,
-                        const char* rightMeta, uint16_t accent) {
+                        const char* rightMeta, uint16_t accent, uint16_t metaColor) {
     using namespace Layout;
     tft.fillRect(0, STATUS_TOP, SCREEN_W, STATUS_BOTTOM, Theme::BG);
 
@@ -355,12 +390,26 @@ void Display::statusBar(const char* title,
     if (rightMeta && *rightMeta) {
         Display::useFont("DMMono-11");
         tft.setTextDatum(MR_DATUM);
-        tft.setTextColor(Theme::MUTED, Theme::BG);
+        tft.setTextColor(metaColor, Theme::BG);
         tft.drawString(rightMeta, SCREEN_W - 4, STATUS_BOTTOM / 2);
     }
 
     // 1-px accent under-line at y=22
     tft.drawFastHLine(0, STATUS_BOTTOM, SCREEN_W, accent);
+}
+
+// Right-meta slot = the 76 px right of the centred title.
+void Display::statusMeta(const char* rightMeta, uint16_t accent, uint16_t metaColor) {
+    using namespace Layout;
+    const int x = SCREEN_W - 76;
+    tft.fillRect(x, STATUS_TOP, 76, STATUS_BOTTOM, Theme::BG);
+    if (rightMeta && *rightMeta) {
+        Display::useFont("DMMono-11");
+        tft.setTextDatum(MR_DATUM);
+        tft.setTextColor(metaColor, Theme::BG);
+        tft.drawString(rightMeta, SCREEN_W - 4, STATUS_BOTTOM / 2);
+    }
+    tft.drawFastHLine(x, STATUS_BOTTOM, 76, accent);
 }
 
 void Display::pixelBar(int x, int y, int w, int h, float pct, uint16_t color) {
@@ -410,7 +459,11 @@ uint16_t Theme::channelColor(const char* name) {
     if (!strcmp(name, "Claude"))  return CORAL;
     if (!strcmp(name, "Codex"))   return LILAC;
     if (!strcmp(name, "Weather")) return SKY;
+    if (!strcmp(name, "Forecast"))return SKY;
     if (!strcmp(name, "Clock"))   return AMBER;
+    if (!strcmp(name, "Home"))    return AMBER;
+    if (!strcmp(name, "AI"))      return INK_DIM;
+    if (!strcmp(name, "Trend"))   return MINT;
     if (!strcmp(name, "Info"))    return MINT;
     if (!strcmp(name, "Push"))    return CORAL;  // overridden per-card
     return MUTED;

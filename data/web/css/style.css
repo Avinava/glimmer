@@ -200,6 +200,42 @@ input:focus, select:focus, textarea:focus {
 .info-row .v.sky    { color: var(--sky);    }
 .info-row .v.lilac  { color: var(--lilac);  }
 .info-row .v.coral  { color: var(--coral);  }
+.info-row .v.muted  { color: var(--muted);  }
+.info-row .v { text-align: right; overflow-wrap: anywhere; margin-left: 12px; }
+
+/* Channel toggles with requirement (screen page) */
+.channel-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.channel-row label.row { margin: 0; }
+.channel-row .needs { font-size: 0.75rem; white-space: nowrap; }
+.channel-row .needs.ok { color: var(--muted); }
+.channel-row .needs.missing { color: var(--amber); }
+.night-window.disabled { opacity: 0.45; }
+
+/* Credential status chip (accounts page) */
+.cred-chip { font-size: 0.8rem; margin: -4px 0 12px; }
+.cred-chip.mint  { color: var(--mint); }
+.cred-chip.amber { color: var(--amber); }
+.cred-chip.coral { color: var(--coral); }
+.cred-chip.muted { color: var(--muted); }
+
+/* Agents page */
+.card-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 0.82rem; }
+.card-row .what { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.card-row .muted { color: var(--muted); }
+.card-row .kind { font-size: 0.7rem; padding: 1px 6px; border-radius: 3px; color: var(--bg, #000); background: var(--ink-dim); }
+.card-row .k-approval, .card-row .k-warning { background: var(--amber); }
+.card-row .k-error { background: var(--coral); }
+.card-row .k-input, .card-row .k-info { background: var(--sky); }
+.card-row .k-progress { background: var(--lilac); }
+.card-row .k-success { background: var(--mint); }
+.card-row button.small { width: auto; margin: 0; padding: 2px 8px; font-size: 0.75rem; }
+article.wide { grid-column: 1 / -1; }
+pre.snippet { background: var(--panel-2); padding: 10px; border-radius: 4px; font-size: 0.7rem; overflow-x: auto; color: var(--ink-dim); white-space: pre; }
+
+/* Manual channel switch (status page) */
+.channel-switch { display: flex; gap: 8px; margin-top: 8px; }
+.channel-switch select { flex: 1; margin: 0; }
+.channel-switch button { width: auto; margin: 0; }
 
 /* Mini live preview of the device screen */
 .tv-preview {
@@ -365,3 +401,56 @@ button:disabled {
   outline-offset: 1px;
   color: var(--ink);
 }
+
+/* ── Settings layout (v0.22) ──────────────────────────────────────────────
+   Explicit column stacks instead of a grid: cards in a column sit directly
+   under each other, so a tall card never leaves a hole beside a short one. */
+:root {
+  --pico-form-element-spacing-vertical: 0.4rem;
+  --pico-form-element-spacing-horizontal: 0.65rem;
+}
+.cols { display: grid; gap: 14px; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.col > article { margin: 0; }
+@media (min-width: 720px) { .cols { grid-template-columns: 1fr 1fr; } }
+section > article { margin-top: 14px; }
+
+/* Compact controls inside cards. */
+article input:not([type="checkbox"]):not([type="radio"]),
+article select,
+article textarea { margin-bottom: 0 !important; font-size: 0.85rem; }
+article label { margin: 10px 0 4px; }
+article .hint { margin: 4px 0 2px; line-height: 1.45; }
+article .row { margin: 10px 0 2px; }
+.cred-chip { margin: -6px 0 10px; }
+
+/* Label on the left, control on the right. */
+.field-inline {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-top: 10px; font-size: 0.8rem; color: var(--ink-dim);
+}
+.field-inline select, .field-inline input.short { width: auto; min-width: 150px; max-width: 60%; }
+.field-inline .row { margin: 0; }
+.field-inline.disabled, .pair.disabled { opacity: 0.45; }
+
+/* Two fields side by side. */
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pair label { margin-top: 10px; }
+
+button.small, .field-inline button.small { width: auto; margin: 0; padding: 3px 10px; font-size: 0.75rem; min-width: 0; }
+
+/* One Save per tab, always reachable. */
+.save-bar {
+  position: sticky; bottom: 0; z-index: 5;
+  display: flex; justify-content: flex-end;
+  margin-top: 14px; padding: 12px 0;
+  background: linear-gradient(to bottom, transparent, var(--bg) 35%);
+}
+.save-bar button.primary { margin: 0; min-width: 160px; width: auto; }
+
+/* Inline code in hints: quiet chips, not bright boxes. */
+.hint code, .needs code {
+  background: var(--panel-2); color: var(--ink-dim);
+  padding: 0 4px; border-radius: 3px; font-size: 0.68rem;
+}
+.save-bar.inline { position: static; background: none; padding: 0; }

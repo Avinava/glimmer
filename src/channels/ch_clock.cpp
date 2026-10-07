@@ -10,6 +10,7 @@
 #include "display.h"
 #include "theme.h"
 #include "config.h"
+#include "clockfmt.h"
 #include <time.h>
 
 static int  s_lastHH = -1, s_lastMM = -1;
@@ -44,8 +45,8 @@ static void clockGeom(int& hhX, int& colonX, int& mmX, int& digitW, int& colonW)
     mmX = colonX + colonW;
 }
 
-static void paintHH(int h) {
-    char buf[4]; snprintf(buf, sizeof(buf), "%02d", h);
+static void paintHH(int h, bool h24) {
+    char buf[4]; ClockFmt::hourField(h, h24, buf, sizeof(buf));
     int hhX, colonX, mmX, dw, cw;
     clockGeom(hhX, colonX, mmX, dw, cw);
     tft.fillRect(hhX, CLOCK_Y, dw * 2, CLOCK_H, Theme::BG);
@@ -75,12 +76,18 @@ static void paintColon() {
     tft.drawString(":", colonX, CLOCK_Y);
 }
 
-static void paintDateRow(const char* date) {
+// Date left; AM/PM right in 12-hour mode.
+static void paintDateRow(const char* date, int hour, bool h24) {
     tft.fillRect(0, 6, SCREEN_W, 16, Theme::BG);
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(Theme::MUTED, Theme::BG);
     tft.drawString(date, 10, 8);
+    if (!h24) {
+        tft.setTextDatum(TR_DATUM);
+        tft.setTextColor(Theme::AMBER, Theme::BG);
+        tft.drawString(hour < 12 ? "AM" : "PM", SCREEN_W - 10, 8);
+    }
 }
 
 static void paintGreeting(const char* msg) {
@@ -118,10 +125,11 @@ void chClockDraw(const ChannelCtx& ctx) {
     char date[20];
     strftime(date, sizeof(date), "%a · %b %d", &tmv);
     for (char* p = date; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
-    paintDateRow(date);
+    const bool h24 = ctx.settings->clock24h;
+    paintDateRow(date, tmv.tm_hour, h24);
     strncpy(s_lastDate, date, sizeof(s_lastDate) - 1);
 
-    paintHH(tmv.tm_hour);
+    paintHH(tmv.tm_hour, h24);
     paintColon();
     paintMM(tmv.tm_min);
     s_lastHH = tmv.tm_hour;
@@ -158,14 +166,16 @@ void chClockTick(const ChannelCtx& ctx) {
         s_lastMM = tmv.tm_min;
     }
     if (tmv.tm_hour != s_lastHH) {
-        paintHH(tmv.tm_hour);
+        const bool h24 = ctx.settings->clock24h;
+        paintHH(tmv.tm_hour, h24);
         s_lastHH = tmv.tm_hour;
 
         char date[20];
         strftime(date, sizeof(date), "%a · %b %d", &tmv);
         for (char* p = date; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
-        if (strcmp(date, s_lastDate) != 0) {
-            paintDateRow(date);
+        // AM/PM flips at noon/midnight even when the date doesn't.
+        if (strcmp(date, s_lastDate) != 0 || (!h24 && (tmv.tm_hour == 0 || tmv.tm_hour == 12))) {
+            paintDateRow(date, tmv.tm_hour, h24);
             strncpy(s_lastDate, date, sizeof(s_lastDate) - 1);
         }
         const char* uname = ctx.settings ? ctx.settings->userName.c_str() : "";

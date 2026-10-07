@@ -1,45 +1,11 @@
 #pragma once
 #include <Arduino.h>
+#include <ESP8266HTTPClient.h>
+#include <functional>
 #include <time.h>
 #include "storage.h"
-
-struct ModelSlot {
-    float pct = -1.0f;
-    char  label[12] = "";
-};
-
-struct ClaudeData {
-    float     sessionPct   = -1.0f;
-    float     weeklyPct    = -1.0f;
-    time_t    sessionReset = 0;
-    time_t    weeklyReset  = 0;
-    ModelSlot models[3];               // top model breakdowns
-    bool      valid = false;
-    char      err[24] = "";
-    char      rawKeys[128] = "";           // debug: comma-separated API keys with utilization
-};
-
-struct CodexData {
-    float  primaryPct     = -1.0f;
-    float  secondaryPct   = -1.0f;
-    time_t primaryReset   = 0;
-    time_t secondaryReset = 0;
-    long   primaryWinSec   = 0;      // primary window length (s) → drives label
-    long   secondaryWinSec = 0;      // secondary window length (s) → drives label
-    char   secondaryTag[16] = "";    // non-empty when the secondary row comes from
-                                     // an additional model limit (e.g. "SPARK")
-    float  creditsRemain  = -1.0f;
-    bool   valid = false;
-    char   err[24] = "";
-    uint8_t hourlyPct[24] = {};
-    bool    hourlyValid[24] = {};
-};
-
-// "Loading" = configured but never successfully fetched, with no error yet.
-// (Both channels are only enabled once configured, so this can't false-positive
-// on an unconfigured slot.) A recorded error takes precedence over loading.
-inline bool claudeLoading(const ClaudeData& d) { return !d.valid && !d.err[0]; }
-inline bool codexLoading (const CodexData&  d) { return !d.valid && !d.err[0]; }
+#include "usage_types.h"
+#include "fetch_policy.h"
 
 namespace Api {
     // The Codex percentage to show as the hero/summary metric. The weekly
@@ -50,18 +16,58 @@ namespace Api {
         bool realSecondary = d.secondaryPct >= 0 && d.secondaryTag[0] == '\0';
         return (realSecondary && s.codexWeeklyHero) ? d.secondaryPct : d.primaryPct;
     }
+    inline float claudeHeroPct(const Settings& s, const ClaudeData& d) {
+        return s.claudeWeeklyHero ? d.weeklyPct : d.sessionPct;
+    }
 
-    // Authenticates and pulls the org's usage. Updates the ClaudeData passed in.
+    // Data counts as stale once it is older than 3 refresh intervals (with a
+    // 15-minute floor so backoff on a 1-minute cadence doesn't flap). Stale
+    // data stays on screen, dimmed, with a STALE badge.
+    bool isStale(time_t lastOk, const Settings& s);
+    // Writes "STALE 14M" into buf when stale, "" otherwise.
+    void staleText(time_t lastOk, const Settings& s, char* buf, size_t n);
+
+    // Which weekly allowance to spend next, for the AI dashboard:
+    //   "USE CLAUDE · RESETS 20H" — resets within 48 h with ≥ 25% unused
+    //   "MOST ROOM: CODEX 80%"    — otherwise the one with more left
+    // "" unless both providers have data.
+    void adviceText(const ClaudeData& cl, const CodexData& cx, char* buf, size_t n);
+
+    // One fetch job each. Update the data passed in and the source's policy
+    // state (backoff / auth latch / edge block). Return true on success.
     bool fetchClaude(const Settings& s, ClaudeData& out);
-
-    // Pulls chatgpt.com/backend-api/wham/usage.
     bool fetchCodex(const Settings& s, CodexData& out);
+    // Hourly: Codex limit-reset credits (separate endpoint).
+    bool fetchCodexResets(const Settings& s, CodexData& out);
+
+    // Re-derive the credential state (cheap; call after a fetch, on settings
+    // change, and periodically so EXPIRING/EXPIRED track the clock). Returns
+    // true when a credential itself changed (a new key was pasted).
+    bool refreshCred(const Settings& s, ClaudeData& cl, CodexData& cx);
+
+    const FetchPolicy::State& claudePolicy();
+    const FetchPolicy::State& codexPolicy();
 
     // Helpers for displaying countdowns.
     String formatCountdown(time_t t);
 
+    struct TlsResult {
+        int  code = 0;          // HTTP code, negative = transport error
+        bool parsed = false;    // what onBody returned (200 only)
+        long retryAfter = -1;   // Retry-After in seconds, -1 when absent
+        bool markup = false;    // a 401/403 answered with HTML (edge challenge)
+    };
+
+    // Shared TLS GET that streams the body into `onBody` (called only on 200).
+    TlsResult tlsGetStream(const char* url,
+                           const std::function<void(HTTPClient&)>& addHeaders,
+                           const std::function<bool(Stream&)>& onBody);
+
     // Debug telemetry from the last Claude usage fetch (surfaced in /api/state).
     int  lastClaudeHttp();        // HTTP code (or negative HTTPClient error)
-    int  lastClaudeBodyLen();     // response body length, -1 if no 200
     const char* lastClaudeParse(); // deserialization result ("Ok" on success)
+
+    // Minimum contiguous heap block a TLS handshake needs. The scheduler
+    // refuses to start a TLS job below this (refusals don't count as failures).
+    constexpr uint32_t kTlsFloor = 20000;
 }

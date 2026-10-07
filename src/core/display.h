@@ -22,6 +22,15 @@ namespace Display {
     // 16×16 glimmer spark logo — direct-blit, no FS dependency.
     void drawLogo(int x, int y, uint16_t color);
 
+    // 16-row bitmap glyph (row bitmasks, MSB = leftmost pixel), each pixel
+    // drawn as a scale×scale block. Shared by the logo, weather icons and
+    // the status glyphs.
+    void drawGlyph16(const uint16_t rows[16], int x, int y, uint16_t color, int scale = 1);
+
+    // 16×16 key (credential problems) and 32-px circle-slash (blocked).
+    void drawKeyGlyph(int x, int y, uint16_t color, int scale = 1);
+    void drawBlockedGlyph(int cx, int cy, uint16_t color);
+
     // Re-arm partial-redraw state for boot/system screens so the next
     // drawSplash/drawConnecting/drawOtaProgress paints chrome from scratch.
     // Call this whenever a channel takes over the screen or a different
@@ -61,7 +70,11 @@ namespace Display {
     //   center:      title text, Silkscreen-feel
     //   right slot:  small meta text (model name, location code, etc.)
     //   y=22:        1-px accent under-line in the channel's color
-    void statusBar(const char* title, const char* rightMeta, uint16_t accent);
+    void statusBar(const char* title, const char* rightMeta, uint16_t accent,
+                   uint16_t metaColor = 0x8BF2 /* Theme::MUTED */);
+    // Repaint only the status bar's right-meta slot (safe from tick()).
+    void statusMeta(const char* rightMeta, uint16_t accent,
+                    uint16_t metaColor = 0x8BF2 /* Theme::MUTED */);
 
     // Flat colored fill bar with 1-px frame. The design language.
     //   x, y, w, h:  full bar rectangle

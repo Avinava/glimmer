@@ -11,34 +11,72 @@
 #include "config.h"
 #include "weather.h"
 #include "weather_icons.h"
+#include "clockfmt.h"
 #include <time.h>
 #include <math.h>
 
-static WeatherData s_w;
-static uint32_t    s_lastFetch = 0;
+static const WeatherData& s_w = Weather::snapshot();
 
 // tick cache
 static float   s_tickTemp = -999.f;
 static uint8_t s_tickCode = 255;
+static bool    s_tickDay  = true;
 static int     s_tickHum  = -2;
 static float   s_tickWind = -1.f;
 static float   s_tickFeels = -999.f;
+static float   s_tickUv   = -2.f;
 static float   s_dayTmin[3] = {-999.f, -999.f, -999.f};
 static float   s_dayTmax[3] = {-999.f, -999.f, -999.f};
 static uint8_t s_dayCode[3] = {255, 255, 255};
-
-WeatherData* weatherSnapshotPtr() { return &s_w; }
-
-void weatherTick(const Settings& s) {
-    uint32_t now = millis();
-    if (s_lastFetch && (now - s_lastFetch < 600000UL)) return;
-    if (Weather::fetch(s, s_w)) s_lastFetch = now;
-    else if (s_lastFetch == 0) s_lastFetch = now;
-}
+static char    s_meta[16] = "";
 
 bool chWeatherEnabled(const ChannelCtx& ctx) {
-    return ctx.settings && ctx.settings->showWeather
-           && (ctx.settings->weatherLat != 0.0f || ctx.settings->weatherLon != 0.0f);
+    return ctx.settings && ctx.settings->showWeather && Weather::configured(*ctx.settings);
+}
+
+// Status-bar meta: STALE badge, else the next sun event ("SET 17:48").
+static uint16_t metaFor(const Settings& s, char* buf, size_t n) {
+    if (Weather::isStale(s)) {
+        char d[8]; TimeUtil::shortDuration((long)(time(nullptr) - s_w.lastOk), d, sizeof(d));
+        snprintf_P(buf, n, PSTR("STALE %s"), d);
+        return Theme::AMBER;
+    }
+    time_t now = time(nullptr);
+    const WeatherDay& today = s_w.forecast[0];
+    const char* tag; time_t at;
+    if (today.sunrise && now < today.sunrise)    { tag = "RISE"; at = today.sunrise; }
+    else if (today.sunset && now < today.sunset) { tag = "SET";  at = today.sunset; }
+    else                                         { tag = "RISE"; at = s_w.forecast[1].sunrise; }
+    if (!at) { snprintf_P(buf, n, PSTR("OUT")); return Theme::MUTED; }
+    char hm[10]; ClockFmt::hm(at, s.clock24h, hm, sizeof(hm));
+    snprintf_P(buf, n, PSTR("%s %s"), tag, hm);
+    return Theme::MUTED;
+}
+
+static void paintRightStack(bool f) {
+    Display::useFont("DMMono-11");
+    tft.setTextDatum(TR_DATUM);
+    tft.setTextColor(Theme::MUTED, Theme::BG);
+    char line[24];
+    int ry = 36;
+    if (s_w.feelsC > -900.0f) {
+        snprintf_P(line, sizeof(line), PSTR("feels %.0f°"), Weather::toDisplay(s_w.feelsC, f));
+        tft.drawString(line, SCREEN_W - 12, ry); ry += 18;
+    }
+    if (s_w.humidity >= 0) {
+        snprintf_P(line, sizeof(line), PSTR("hum %d%%"), s_w.humidity);
+        tft.drawString(line, SCREEN_W - 12, ry); ry += 18;
+    }
+    if (s_w.windKmh >= 0) {
+        snprintf_P(line, sizeof(line), PSTR("wind %.0fkm"), s_w.windKmh);
+        tft.drawString(line, SCREEN_W - 12, ry); ry += 18;
+    }
+    if (s_w.forecast[0].uvMax >= 0) {
+        float uv = s_w.forecast[0].uvMax;
+        tft.setTextColor(uv >= 8 ? Theme::CORAL : uv >= 6 ? Theme::AMBER : Theme::MUTED, Theme::BG);
+        snprintf_P(line, sizeof(line), PSTR("uv %.0f"), uv);
+        tft.drawString(line, SCREEN_W - 12, ry);
+    }
 }
 
 static void miniDay(int x, int y, int w, const WeatherDay& d, const char* label, bool fahrenheit) {
@@ -55,7 +93,7 @@ static void miniDay(int x, int y, int w, const WeatherDay& d, const char* label,
         float mx = Weather::toDisplay(d.tmax, fahrenheit);
         float mn = Weather::toDisplay(d.tmin, fahrenheit);
         char buf[16];
-        snprintf(buf, sizeof(buf), "%.0f/%.0f", mx, mn);
+        snprintf_P(buf, sizeof(buf), PSTR("%.0f/%.0f"), mx, mn);
         tft.setTextColor(Theme::INK, Theme::PANEL);
         tft.drawString(buf, x + w/2, y + 30);
     }
@@ -65,9 +103,34 @@ static void miniDay(int x, int y, int w, const WeatherDay& d, const char* label,
     tft.drawString(Weather::describe(d.code), x + w/2, y + 52);
 }
 
+
+static void paintTemp(bool f, bool stale) {
+    char tBuf[8];
+    snprintf_P(tBuf, sizeof(tBuf), PSTR("%.0f"), Weather::toDisplay(s_w.tempC, f));
+    tft.fillRect(10, 32, 120, 82, Theme::BG);
+    Display::useFont("VT323-86");
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextColor(stale ? Theme::MUTED : Theme::INK, Theme::BG);
+    tft.drawString(tBuf, 12, 32);
+    int tW = tft.textWidth(tBuf);
+    Display::useFont("VT323-32");
+    tft.setTextColor(Theme::SKY, Theme::BG);
+    tft.drawString("°", 12 + tW + 2, 42);
+}
+
+static void paintCondition() {
+    tft.fillRect(10, 116, 160, 18, Theme::BG);
+    WeatherIcon::draw(12, 117, s_w.code, Theme::SKY, 1, !s_w.isDay);
+    Display::useFont("PixelifySans-14");
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextColor(Theme::INK_DIM, Theme::BG);
+    tft.drawString(Weather::describe(s_w.code), 32, 118);
+}
+
 void chWeatherDraw(const ChannelCtx& ctx) {
     Display::clear();
-    Display::statusBar("Weather", "OUT", Theme::SKY);
+    uint16_t mc = metaFor(*ctx.settings, s_meta, sizeof(s_meta));
+    Display::statusBar("Weather", s_meta, Theme::SKY, mc);
 
     if (!s_w.valid) {
         Display::useFont("Silkscreen-16");
@@ -78,44 +141,10 @@ void chWeatherDraw(const ChannelCtx& ctx) {
     }
 
     bool f = ctx.settings && ctx.settings->useFahrenheit;
-
-    // Big temp left (VT323-86)
-    char tBuf[8];
-    snprintf(tBuf, sizeof(tBuf), "%.0f", Weather::toDisplay(s_w.tempC, f));
-    Display::useFont("VT323-86");
-    tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::INK, Theme::BG);
-    tft.drawString(tBuf, 12, 32);
-    int tW = tft.textWidth(tBuf);
-
-    Display::useFont("VT323-32");
-    tft.setTextColor(Theme::SKY, Theme::BG);
-    tft.drawString("°", 12 + tW + 2, 42);
-
-    // Conditions — icon + text
-    WeatherIcon::draw(12, 117, s_w.code, Theme::SKY);
-    Display::useFont("PixelifySans-14");
-    tft.setTextColor(Theme::INK_DIM, Theme::BG);
-    tft.drawString(Weather::describe(s_w.code), 32, 118);
-
-    // Right stack — feels/hum/wind
-    Display::useFont("DMMono-11");
-    tft.setTextDatum(TR_DATUM);
-    tft.setTextColor(Theme::MUTED, Theme::BG);
-    char line[24];
-    int ry = 36;
-    if (s_w.feelsC > -900.0f) {
-        snprintf(line, sizeof(line), "feels %.0f°", Weather::toDisplay(s_w.feelsC, f));
-        tft.drawString(line, SCREEN_W - 12, ry); ry += 18;
-    }
-    if (s_w.humidity >= 0) {
-        snprintf(line, sizeof(line), "hum %d%%", s_w.humidity);
-        tft.drawString(line, SCREEN_W - 12, ry); ry += 18;
-    }
-    if (s_w.windKmh >= 0) {
-        snprintf(line, sizeof(line), "wind %.0fkm", s_w.windKmh);
-        tft.drawString(line, SCREEN_W - 12, ry);
-    }
+    bool stale = Weather::isStale(*ctx.settings);
+    paintTemp(f, stale);
+    paintCondition();
+    paintRightStack(f);
 
     Display::dotsDivider(12, 140, SCREEN_W - 24);
 
@@ -132,72 +161,54 @@ void chWeatherDraw(const ChannelCtx& ctx) {
     }
 
     // Seed cache for tick()
-    s_tickTemp  = s_w.tempC;
+    s_tickTemp  = stale ? -998.f : s_w.tempC;    // stale ↔ live repaints the temp
     s_tickFeels = s_w.feelsC;
     s_tickHum   = s_w.humidity;
     s_tickWind  = s_w.windKmh;
+    s_tickUv    = s_w.forecast[0].uvMax;
     s_tickCode  = s_w.code;
+    s_tickDay   = s_w.isDay;
 }
 
 void chWeatherTick(const ChannelCtx& ctx) {
     if (!s_w.valid) return;
     bool f = ctx.settings && ctx.settings->useFahrenheit;
 
-    bool tempDirty  = fabsf(s_w.tempC - s_tickTemp) > 0.4f;
-    bool codeDirty  = s_w.code != s_tickCode;
-    bool feelsDirty = fabsf(s_w.feelsC - s_tickFeels) > 0.4f;
-    bool humDirty   = s_w.humidity != s_tickHum;
-    bool windDirty  = fabsf(s_w.windKmh - s_tickWind) > 0.4f;
-
-    // Big temp left
-    if (tempDirty) {
-        char tBuf[8];
-        snprintf(tBuf, sizeof(tBuf), "%.0f", Weather::toDisplay(s_w.tempC, f));
-        tft.fillRect(10, 32, 160, 90, Theme::BG);
-        Display::useFont("VT323-86");
-        tft.setTextDatum(TL_DATUM);
-        tft.setTextColor(Theme::INK, Theme::BG);
-        tft.drawString(tBuf, 12, 32);
-        int tW = tft.textWidth(tBuf);
-        Display::useFont("VT323-32");
-        tft.setTextColor(Theme::SKY, Theme::BG);
-        tft.drawString("°", 12 + tW + 2, 42);
-        s_tickTemp = s_w.tempC;
+    // Meta (sun event / stale badge) moves at most once a minute.
+    static int s_metaMin = -1;
+    time_t now = time(nullptr);
+    if (now / 60 != s_metaMin) {
+        s_metaMin = now / 60;
+        char m[16]; uint16_t mc = metaFor(*ctx.settings, m, sizeof(m));
+        if (strcmp(m, s_meta) != 0) {
+            Display::statusMeta(m, Theme::SKY, mc);
+            strncpy(s_meta, m, sizeof(s_meta) - 1);
+        }
     }
 
-    if (codeDirty) {
-        tft.fillRect(10, 116, 160, 18, Theme::BG);
-        WeatherIcon::draw(12, 117, s_w.code, Theme::SKY);
-        Display::useFont("PixelifySans-14");
-        tft.setTextDatum(TL_DATUM);
-        tft.setTextColor(Theme::INK_DIM, Theme::BG);
-        tft.drawString(Weather::describe(s_w.code), 32, 118);
+    bool stale = Weather::isStale(*ctx.settings);
+    float tempKey = stale ? -998.f : s_w.tempC;
+    if (fabsf(tempKey - s_tickTemp) > 0.4f) {
+        paintTemp(f, stale);
+        s_tickTemp = tempKey;
+    }
+
+    if (s_w.code != s_tickCode || s_w.isDay != s_tickDay) {
+        paintCondition();
         s_tickCode = s_w.code;
+        s_tickDay  = s_w.isDay;
     }
 
     // Right stack — repaint whole block if any value changed (cheap, small)
-    if (feelsDirty || humDirty || windDirty) {
+    if (fabsf(s_w.feelsC - s_tickFeels) > 0.4f || s_w.humidity != s_tickHum
+        || fabsf(s_w.windKmh - s_tickWind) > 0.4f
+        || fabsf(s_w.forecast[0].uvMax - s_tickUv) > 0.4f) {
         tft.fillRect(SCREEN_W - 100, 32, 92, 78, Theme::BG);
-        Display::useFont("DMMono-11");
-        tft.setTextDatum(TR_DATUM);
-        tft.setTextColor(Theme::MUTED, Theme::BG);
-        char line[24];
-        int ry = 36;
-        if (s_w.feelsC > -900.0f) {
-            snprintf(line, sizeof(line), "feels %.0f°", Weather::toDisplay(s_w.feelsC, f));
-            tft.drawString(line, SCREEN_W - 12, ry); ry += 18;
-        }
-        if (s_w.humidity >= 0) {
-            snprintf(line, sizeof(line), "hum %d%%", s_w.humidity);
-            tft.drawString(line, SCREEN_W - 12, ry); ry += 18;
-        }
-        if (s_w.windKmh >= 0) {
-            snprintf(line, sizeof(line), "wind %.0fkm", s_w.windKmh);
-            tft.drawString(line, SCREEN_W - 12, ry);
-        }
+        paintRightStack(f);
         s_tickFeels = s_w.feelsC;
         s_tickHum   = s_w.humidity;
         s_tickWind  = s_w.windKmh;
+        s_tickUv    = s_w.forecast[0].uvMax;
     }
 
     // Forecast cards — repaint any day whose data changed

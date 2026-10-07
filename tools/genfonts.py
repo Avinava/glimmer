@@ -50,9 +50,9 @@ FONT_MATRIX = [
     ("VT323-86",        "VT323-Regular.ttf",      86, ASCII + EXTRA),
     ("VT323-110",       "VT323-Regular.ttf",     110, ASCII + EXTRA),
     # Silkscreen — UI pixel font for status bars / pills / countdowns
-    ("Silkscreen-10",   "Silkscreen-Regular.ttf", 10, ASCII),
-    ("Silkscreen-12",   "Silkscreen-Regular.ttf", 12, ASCII),
-    ("Silkscreen-16",   "Silkscreen-Regular.ttf", 16, ASCII),
+    ("Silkscreen-10",   "Silkscreen-Regular.ttf", 10, ASCII + EXTRA),
+    ("Silkscreen-12",   "Silkscreen-Regular.ttf", 12, ASCII + EXTRA),
+    ("Silkscreen-16",   "Silkscreen-Regular.ttf", 16, ASCII + EXTRA),
     # Pixelify Sans — softer pixel display font
     ("PixelifySans-14", "PixelifySans.ttf",       14, ASCII + EXTRA),
     ("PixelifySans-22", "PixelifySans.ttf",       22, ASCII + EXTRA),

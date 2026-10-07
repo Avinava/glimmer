@@ -1,6 +1,5 @@
 #include "weather_icons.h"
-#include <TFT_eSPI.h>
-extern TFT_eSPI tft;
+#include "display.h"
 
 // 16x16 pixel-art weather glyphs, stored as row bitmasks (MSB-left).
 // Same encoding as Display::drawLogo() in display.cpp.
@@ -197,6 +196,30 @@ static const uint16_t ICON_THUNDER[16] = {
     0x0C00, 0x0000, 0x0000, 0x0000,
 };
 
+//  ☾ Moon — crescent opening to the right
+//  ................
+//  ................
+//  .....####.......
+//  ...###..........
+//  ..###...........
+//  ..##............
+//  .###............
+//  .###............
+//  .###............
+//  .###............
+//  ..##............
+//  ..###.......#...
+//  ...####...###...
+//  .....######.....
+//  ................
+//  ................
+static const uint16_t ICON_MOON[16] = {
+    0x0000, 0x0000, 0x0780, 0x1C00,
+    0x3800, 0x3000, 0x7000, 0x7000,
+    0x7000, 0x7000, 0x3000, 0x3808,
+    0x1E38, 0x07E0, 0x0000, 0x0000,
+};
+
 static const uint16_t* iconFor(uint8_t wmoCode) {
     if (wmoCode == 0)                       return ICON_SUN;
     if (wmoCode == 1 || wmoCode == 2)       return ICON_PARTCLOUD;
@@ -211,18 +234,7 @@ static const uint16_t* iconFor(uint8_t wmoCode) {
     return ICON_CLOUD;
 }
 
-void WeatherIcon::draw(int x, int y, uint8_t wmoCode, uint16_t color, int scale) {
-    const uint16_t* rows = iconFor(wmoCode);
-    for (int row = 0; row < 16; row++) {
-        uint16_t bits = rows[row];
-        if (!bits) continue;
-        for (int col = 0; col < 16; col++) {
-            if (bits & (1 << (15 - col))) {
-                if (scale <= 1)
-                    tft.drawPixel(x + col, y + row, color);
-                else
-                    tft.fillRect(x + col * scale, y + row * scale, scale, scale, color);
-            }
-        }
-    }
+void WeatherIcon::draw(int x, int y, uint8_t wmoCode, uint16_t color, int scale, bool night) {
+    const uint16_t* rows = (night && wmoCode <= 1) ? ICON_MOON : iconFor(wmoCode);
+    Display::drawGlyph16(rows, x, y, color, scale);
 }

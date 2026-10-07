@@ -18,7 +18,7 @@ struct ChannelCtx {
 //   draw(ctx)  — Full repaint. Called once when the channel becomes active.
 //                Calls Display::clear() and paints every pixel from scratch.
 //
-//   tick(ctx)  — Optional. Called ~1 Hz while the channel is active. MUST NOT
+//   tick(ctx)  — Optional. Called at 5 Hz while the channel is active. MUST NOT
 //                call Display::clear() or fillScreen. Only repaints the
 //                specific pixel regions whose value changed since the last
 //                tick/draw. This is how we avoid full-screen flashing on

@@ -1,92 +1,124 @@
-# AGENTS.md — orientation for AI agents
+# AGENTS.md — orientation for AI agents working on this repo
 
-Working on this repo? Start here.
+Firmware for the GeekMagic SmallTV-Ultra (ESP8266, 4 MB flash, 240×240
+ST7789). PlatformIO, C++ (Arduino core), plus a small Alpine.js web UI in
+`data/web/`.
 
-## What this is
+**Using a glimmer rather than changing it?** (pushing cards, MCP tools,
+hooks) → read [`docs/AGENTS-GLIMMER.md`](docs/AGENTS-GLIMMER.md), not this.
 
-Firmware for the GeekMagic SmallTV-Ultra (ESP8266, 240×240 ST7789).
-PlatformIO project. C++ + a small Alpine.js web UI under `data/web/`.
+## Read first
 
-## Where to look first
-
-- `README.md` — user-facing intro and quick start.
-- `CLAUDE.md` — the technical learnings, gotchas, and architectural
-  discipline. Read this BEFORE making non-trivial changes. It documents
-  bugs that cost days of debugging.
-- `FLASHING.md` — how a device gets glimmer onto it.
-- `.claude/skills/` — task-specific runbooks:
-  - `flash-device.md` — flash a fresh SmallTV-Ultra
-  - `regenerate-fonts.md` — rebuild VLW bitmap fonts
-- `src/channels/channel.h` — defines the channel API and the **PARTIAL
-  REDRAW DISCIPLINE**. Every channel that updates live data must follow
-  this.
-
-## House rules (TL;DR — full version in CLAUDE.md)
-
-1. **Inside `tick()`, never call `Display::clear()` or `tft.fillScreen()`.**
-   Use cached state + per-region paint helpers.
-2. **VLW fonts**: pass `LittleFS` explicitly to `tft.loadFont()` and use
-   the path prefix `fonts/<name>`. `Display::useFont()` handles this.
-3. **Settings round-trip needs four files**: `storage.h`, `storage.cpp`,
-   `web.cpp`, `data/web/index.html`. Miss one and the new setting either
-   doesn't persist or doesn't show in the UI.
-4. **OTA filesystem flash wipes config** — back up via `/api/export`
-   before, restore via `/api/import` from the setup AP.
+- `CLAUDE.md` — hard-won gotchas and architecture rules (fonts, partial
+  redraw, heap gate, credential states, attention queue, flashing). Read it
+  before any non-trivial change.
+- `src/channels/channel.h` — the channel API and the partial-redraw contract.
+- `FLASHING.md` — getting glimmer onto a device; `.claude/skills/` —
+  runbooks: `flash-device.md`, `regenerate-fonts.md`.
 
 ## Repo layout
 
 ```
-glimmer/
-├── platformio.ini           build config
-├── src/
-│   ├── main.cpp             channel rotation + boot path
-│   ├── core/                display, storage, web, theme, layout, pip (deprecated)
-│   ├── channels/            ch_*.cpp — one per rotation channel
-│   ├── data/                api clients (Claude, Codex), weather fetch
-│   └── ui/                  transitions, pip primitives
-├── data/
-│   ├── fonts/               VLW bitmap fonts (built by tools/genfonts.py)
-│   └── web/                 HTML/JS/CSS setup UI (Alpine.js)
-├── tools/
-│   ├── genfonts.py          freetype-py → VLW
-│   └── ttf/                 source TTFs (OFL licensed)
-├── README.md
-├── FLASHING.md
-├── CLAUDE.md                ← read this
-├── AGENTS.md                ← you are here
-└── .claude/skills/          runbooks for common tasks
+platformio.ini            envs: nodemcuv2 (firmware), native (host tests); FW_VERSION
+src/
+  main.cpp                kChannels[] registry, rotation, fetch scheduler, attention
+                          interrupts, indicator strip, Wi-Fi recovery, device notices
+  core/                   display, storage (Settings ↔ /config.json), web (HTTP API,
+                          /push, /hook, /mcp, /update), theme, layout, config
+  data/
+    api.{h,cpp}           Claude + Codex fetchers, tlsGetStream, staleness, kTlsFloor
+    usage_parse.h         claude.ai / chatgpt.com wham JSON → usage snapshot   (pure)
+    usage_types.h         shared usage snapshot structs                        (pure)
+    fetch_policy.h        backoff, Retry-After, auth latch                     (pure)
+    cred_state.h          NOT_SET…BLOCKED credential model + notice log        (pure)
+    history_core.h        usage ring, pace, 7-day trend      (history.cpp persists it)
+    attention_core.h      attention queue rules + hook-event mapping           (pure)
+    attention_json.h      /push + MCP push_card JSON → card                    (pure)
+    attention.{h,cpp}     device-side owner of the queue
+    timeutil.h            TZ-free time helpers                                 (pure)
+    vendor_status.*       status-page badges (opt-in)
+    weather.*             Open-Meteo (plain HTTP), last-good cache
+  channels/
+    ch_*.cpp              one per screen: home, claude, codex, aidash, trend,
+                          weather, forecast, clock, info, night, setup,
+                          attention (Attention card + Agents list)
+    chrome.{h,cpp}        shared usage chrome: credCard/credBanner/credLine, usageMeta
+  ui/
+    night_core.h          night window + backlight logic                       (pure)
+    clockfmt.h            12/24 h formatting shared by clock faces
+    mood.*, weather_icons.*
+data/
+  fonts/*.vlw             shipped VLW fonts (generated by tools/genfonts.py)
+  web/                    setup UI (Alpine.js, Pico CSS)
+test/test_logic/          Unity tests for the (pure) headers above
+tools/
+  genfonts.py, ttf/       freetype-py → VLW; OFL source TTFs
+  agents/                 glimmer-hook.sh + Claude/Codex hook and MCP config snippets
+docs/                     AGENTS-GLIMMER.md (agent-facing contract), images
+.github/workflows/build.yml
 ```
+
+## House rules (details in CLAUDE.md)
+
+1. **`tick()` never clears the screen** — no `Display::clear()` /
+   `tft.fillScreen()`. Cache values, repaint only the band that changed.
+2. **Fonts**: always via `Display::useFont("<name>")` — it loads
+   `/fonts/<name>.vlw` and passes `LittleFS` explicitly. Fonts are ASCII + `°`
+   + `·` only; write `...`, never `…`.
+3. **A new setting touches four files**: `storage.h`, `storage.cpp`,
+   `web.cpp`, `data/web/index.html`.
+4. **RAM is ~30 KB**: put string literals in flash — `snprintf_P(…, PSTR(…))`,
+   `Serial.printf_P`, `F("…")`. Stream JSON (filtered parse); never
+   `getString()` a payload.
+5. **No new TLS hosts on the refresh path.** Each TLS GET needs ~25 KB peak;
+   new periodic fetches go through the job table in `main.cpp` and its heap
+   gate.
+6. **Never post raw hook JSON to the device.** `/hook` takes the trimmed event
+   from `tools/agents/glimmer-hook.sh` (bodies > 2 KB are dropped).
+7. **Enum values are `K_*` / `SHOW_*`** — `INPUT` (and friends) are Arduino
+   macros.
+8. Keep `docs/AGENTS-GLIMMER.md` in sync with `attention_json.h`,
+   `attention_core.h` and the MCP tool schema in `web.cpp`.
+
+## Build & test
+
+```bash
+pio test -e native                 # host unit tests (pure headers), seconds
+pio run -e nodemcuv2               # firmware → .pio/build/nodemcuv2/firmware.bin
+pio run -e nodemcuv2 -t buildfs    # data/ → .pio/build/nodemcuv2/littlefs.bin
+```
+
+Run the native tests for any change to a pure header; run the firmware build
+for everything (clangd errors about `Arduino.h` etc. are noise — `pio run` is
+the truth). The `ota` env (espota) does not work: the firmware has no
+ArduinoOTA. Flash over HTTP `/update` (see CLAUDE.md).
 
 ## When you ship
 
-- Bump `FW_VERSION` in `platformio.ini`.
-- Build firmware **and** filesystem if anything under `data/` changed.
-- Default: flash firmware-only (preserves config). Filesystem flash =
-  config wipe = recovery dance.
+- Bump `FW_VERSION` in `platformio.ini` (`-D FW_VERSION="\"X.Y.Z-glimmer\""`).
+- Anything under `data/` changed (fonts, web UI) → the filesystem image must
+  be flashed too. On a configured device use the no-AP method in CLAUDE.md so
+  the config survives.
 
-## CI / prebuilt binaries
+## CI (`.github/workflows/build.yml`)
 
-GitHub Actions (`.github/workflows/build.yml`) builds on every push and PR:
+Builds firmware + LittleFS on every push to `main`, `v*` tag, PR to `main`, or
+manual dispatch. It does **not** run `pio test -e native` — run it yourself.
 
-- **Push to `main`** → rebuilds the rolling **`latest`** release. Stable URLs,
-  always current:
+- Push to `main` → replaces the rolling **`latest`** release:
   `https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin`
   (and `littlefs.bin`).
-- **Push a `v*` tag** → cuts a permanent, versioned release with the same assets.
-- **PR** → build only (CI artifact), no release.
+- `v*` tag → permanent versioned release (doesn't take the "Latest" badge).
+- PR → build only, binaries as a 30-day CI artifact.
 
-For first-time flashing you (or the user) can **download these instead of
-running `pio run`** — no toolchain needed. The `flash-device` skill and
-`FLASHING.md` default to the download path. Only build locally when flashing
-*uncommitted* changes. To cut a version: bump `FW_VERSION`, then
+Flash committed code from those URLs; build locally only for uncommitted
+changes. To cut a version: bump `FW_VERSION`, then
 `git tag vX.Y.Z && git push --tags`.
 
 ## Don't
 
-- Add libraries beyond what's in `platformio.ini` unless absolutely
-  needed. Heap is ~30 KB; every dependency eats into it.
-- Re-introduce the Pip mascot. The project intentionally removed it.
-- Add full-screen transitions on rotation — they pull attention on a
-  desk display.
-- Touch `src/core/storage.cpp` without also editing the matching field
-  in `data/web/index.html` and `src/core/web.cpp`.
+- Add libraries beyond `platformio.ini` (TFT_eSPI, ArduinoJson) without a
+  strong reason — every dependency eats heap.
+- Add animated transitions between channels — it's a desk display; cuts only.
+- Use `ESP.restart()` for Wi-Fi recovery — it doesn't reset the RF and the
+  device ends up stuck in setup-AP mode.

@@ -4,233 +4,259 @@
 
 # glimmer
 
-> A pixel-art always-on desk widget. Custom firmware for the **GeekMagic
-> SmallTV-Ultra** that rotates through glanceable channels — Claude / Codex
-> usage, clock, weather, push cards — with crisp retro typography on a
-> 240×240 panel.
+> A pixel-art desk display for people who live in coding agents. Custom
+> firmware for the **GeekMagic SmallTV-Ultra** (ESP8266, 240×240) that shows
+> your Claude and Codex usage at a glance — and taps you on the shoulder when
+> an agent is **waiting for your approval**.
 
----
+<p align="center">
+  <img src="./docs/images/screens.png" alt="glimmer screens: Home, Claude, Codex, AI today, Trend, Weather, Clock, an approval card, a done card, the Agents list, an expired-token card and the night face" width="100%">
+</p>
 
-## What it shows
+<sub>Screens rendered from the firmware's layouts, palette and fonts.</sub>
 
-| Channel | What |
+## What it does
+
+- **Usage you can trust at a glance.** Claude's 5-hour and weekly windows,
+  per-model limits and reset credits; Codex's weekly window, per-model limit
+  and credits; a combined AI view that tells you which allowance to spend next;
+  a 7-day trend of how much you burn per day.
+- **Pace, not just percentages.** "EMPTY IN 2D" or "~18% AT RESET", worked out
+  from a week of on-device history.
+- **Approvals on your desk.** When Claude Code or Codex stops at a permission
+  prompt, glimmer shows what it wants to run and how long it has been waiting
+  — and clears itself once you answer in the terminal.
+- **Honest about its own data.** Old numbers dim with a `STALE 14M` badge; an
+  expired or rejected token gets a screen that says so and where to fix it; a
+  Codex token warns you three days before it expires.
+- **A calm desk object.** Clock, weather (rain hint, UV, sunrise/sunset), a dim
+  night face or screen-off at night, and no animations between channels.
+
+Everything is set up from a small web UI on the device (`http://glimmer.local`).
+
+## Channels
+
+| | Channel | Shows |
+|---|---|---|
+| <img src="docs/images/screen-home.png" width="120"> | **Home** | Clock, weather, Claude/Codex meters, today's timeline, rain hint |
+| <img src="docs/images/screen-claude.png" width="120"> | **Claude** | 5-hour (or weekly) hero %, reset countdown, weekly row, pace, reset credits, per-model limits |
+| <img src="docs/images/screen-codex.png" width="120"> | **Codex** | Weekly hero %, credits or reset, per-model limit, 24-hour history with pace |
+| <img src="docs/images/screen-ai.png" width="120"> | **AI today** | Both side by side, their resets, and which one to use next |
+| <img src="docs/images/screen-trend.png" width="120"> | **Trend** | Weekly allowance used per day, last 7 days, per provider |
+| <img src="docs/images/screen-weather.png" width="120"> | **Weather** / **Forecast** | Temperature, feels-like, humidity, wind, UV, next sunrise/sunset; 3-day range bars |
+| <img src="docs/images/screen-clock.png" width="120"> | **Clock** | Big clock (12/24 h), greeting, day progress |
+| <img src="docs/images/screen-night.png" width="120"> | **Night face** | Dim time and date only, during your night window (optional) |
+
+Plus **Info** (network, memory, firmware) and a **Setup** checklist that
+appears until you add a key.
+
+## glimmer for agents
+
+<p align="center">
+  <img src="docs/images/screen-approval.png" width="240" alt="approval card: CLAUDE · glimmer, Bash, the command, NEEDS YOU · 2M">
+  &nbsp;
+  <img src="docs/images/screen-done.png" width="240" alt="done card: 142/142, TESTS PASSED">
+  &nbsp;
+  <img src="docs/images/screen-agents.png" width="240" alt="Agents list">
+</p>
+
+The moment an agent stops at a permission prompt, glimmer shows **which
+agent**, **which project**, **what it wants to run** and **how long it has
+waited**. The card holds the screen and the strip along the bottom turns amber
+on every channel. When you answer in the terminal, the card goes away. The
+device has no buttons — you always approve in the terminal; glimmer just makes
+sure you notice.
+
+Agents can also push their own cards over MCP or HTTP: progress that updates in
+place, "tests passed", "deploy failed". Up to five cards queue by priority; the
+**Agents** channel lists them.
+
+**Set up in three steps** (the device's **Agents** tab shows these with your
+URL and token filled in):
+
+1. **Hook script** — install
+   [`tools/agents/glimmer-hook.sh`](tools/agents/glimmer-hook.sh) to
+   `~/.local/bin/` (needs `curl` and `jq`), and set
+   `GLIMMER_URL=http://glimmer.local` (plus `GLIMMER_TOKEN` if you set an API
+   token on the device).
+2. **Wire the hooks** — merge
+   [`tools/agents/claude-settings.json`](tools/agents/claude-settings.json) into
+   `~/.claude/settings.json`, and/or save
+   [`tools/agents/codex-hooks.json`](tools/agents/codex-hooks.json) as
+   `~/.codex/hooks.json` (Codex asks you to trust new hooks once).
+3. **MCP (optional)** — add [`tools/agents/mcp.json`](tools/agents/mcp.json) to
+   your `.mcp.json`, or
+   `claude mcp add --transport http glimmer http://glimmer.local/mcp`.
+
+Then paste the short block from
+**[docs/AGENTS-GLIMMER.md](docs/AGENTS-GLIMMER.md)** into your project's
+`CLAUDE.md` / `AGENTS.md`. It tells agents when to push, how to update a card
+in place and what never to send; the same doc is the full card and API
+reference.
+
+## When something's wrong
+
+<img src="docs/images/screen-token.png" width="200" align="right" alt="TOKEN EXPIRED card with glimmer.local">
+
+glimmer separates *"your key is dead"* from *"the network hiccuped"*:
+
+- **No key yet** — a Setup checklist, and the Home rows say `add key · glimmer.local`.
+- **Rejected or expired** — a card says so and where to paste a new one; old
+  numbers stay visible, dimmed, with a banner. A token is only declared bad
+  after two rejections in a row.
+- **Blocked** — if claude.ai answers with a Cloudflare challenge instead of
+  JSON, glimmer says the *device* is being challenged and that your key is fine.
+- **Expiring** — Codex tokens carry an expiry date; glimmer warns three days
+  ahead.
+- **Offline** — numbers dim with `STALE 14M`; fetching backs off and retries.
+
+Short notice cards ("CODEX TOKEN · 2 DAYS") appear once in a while for these —
+never at night.
+
+## The web UI
+
+<p align="center">
+  <img src="docs/images/web-accounts.png" width="49%" alt="Accounts tab">
+  <img src="docs/images/web-agents.png" width="49%" alt="Agents tab">
+</p>
+
+| Tab | What's there |
 |---|---|
-| **Home** | At-a-glance clock + weather + Claude/Codex usage meters + 24-hour timeline |
-| **Clock** | Big VT323 digital clock, day-of-week, greeting |
-| **Weather Now** | Hero temp, feels/humidity/wind, 3-day mini cards |
-| **5-day Forecast** | Range-bar rows showing min/max + condition |
-| **Claude usage** | 5-hour window % + weekly % + reset countdowns |
-| **Codex usage** | Primary % + secondary % + credits/reset |
-| **AI Today** | Combined Claude+Codex card with 7-day mini chart |
-| **Info** | IP / SSID / signal / uptime / heap / CPU / firmware |
-| **Push cards** | One-shot notification cards via `POST /push` |
+| **Status** | Live state, diagnostics (memory, per-source health, provider status), refresh, show a channel |
+| **Wi-Fi** | Network credentials |
+| **Accounts** | Claude key, Codex token (each with a live status line), which number is large, how often to check, outage badges |
+| **Screen** | Channels (in rotation order, with what each needs), rotation, brightness, 12/24 h, night mode |
+| **Place & time** | Your name, timezone, weather location and units |
+| **Agents** | What's on the display, approval behaviour, send a card, API token, hook and MCP snippets |
+| **Device** | Firmware update, config backup/restore, reboot, factory reset |
 
-All channels render via region-based partial repaints — no flickering
-between data updates.
+The optional API token (Agents tab) protects the agent endpoints — push,
+hooks, MCP, refresh and channel switching. Settings, config export and the
+firmware update page stay open to your LAN, and the export contains your
+Wi-Fi password and keys, so keep glimmer on a network you trust.
 
-## Quick start — flash the prebuilt binaries (no toolchain)
+## Getting your tokens
 
-Every push to `main` is built by CI and published to the
-**[`latest`](https://github.com/Avinava/glimmer/releases/tag/latest)**
-release, so you don't need PlatformIO to flash a device:
+glimmer reads your usage the way the claude.ai and chatgpt.com dashboards do,
+with your own browser session. Copy each credential from DevTools and paste it
+on the **Accounts** tab at `http://glimmer.local/`.
+
+**Claude — `sessionKey` cookie.** On `claude.ai`: DevTools → **Application →
+Cookies → `https://claude.ai`** → copy `sessionKey` (starts with
+`sk-ant-sid02-`). It has no visible expiry; glimmer tells you when claude.ai
+stops accepting it.
+
+**Codex — bearer token + device ID.** On `chatgpt.com`: DevTools → **Network**,
+filter `backend-api`, click any request and copy two headers:
+`authorization: Bearer eyJ…` (everything after `Bearer `) and `oai-device-id`.
+Use a `backend-api` request — asset requests carry no `authorization` header.
+The token is short-lived; glimmer reads its expiry and warns before it lapses.
+
+> **Shortcut:** right-click the `backend-api` request → **Copy as cURL** and give
+> it to Claude Code — it can pull both values out and send them to the device
+> (`POST /api/settings`).
+
+## Install
+
+### Flash the prebuilt images (no toolchain)
+
+Every push to `main` is built by CI and published to the rolling
+**[`latest`](https://github.com/Avinava/glimmer/releases/tag/latest)** release
+(each `v*` tag also gets its own release):
 
 ```bash
-# Grab the latest CI-built images
 curl -L -O https://github.com/Avinava/glimmer/releases/download/latest/littlefs.bin
 curl -L -O https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin
-
-# Flash a freshly-stocked SmallTV-Ultra (over your home LAN). Filesystem FIRST:
-DEVICE_IP=<find via arp or device screen>
-curl -F "filesystem=@littlefs.bin" http://$DEVICE_IP/update
-curl -F "firmware=@firmware.bin"   http://$DEVICE_IP/update
-
-# Device reboots into glimmer's setup AP. Connect to "glimmer-setup" Wi-Fi
-# (open, no password) and visit http://192.168.4.1/ to enter your home
-# Wi-Fi credentials.
 ```
 
-Want a specific release instead of the rolling latest? Each `v*` tag has its
-own assets under **[Releases](https://github.com/Avinava/glimmer/releases)**.
+- **Stock SmallTV-Ultra → glimmer:** see **[FLASHING.md](./FLASHING.md)**
+  (get the stock firmware onto your Wi-Fi once, then OTA-flash the filesystem
+  and the firmware). The device reboots into the open `glimmer-setup` Wi-Fi;
+  join it and open `http://192.168.4.1/`.
+- **Updating a glimmer:** firmware alone keeps your settings
+  (`curl -F "firmware=@firmware.bin" http://glimmer.local/update`). A
+  filesystem flash replaces `/config.json` — FLASHING.md shows how to carry your
+  settings across without the setup-Wi-Fi detour.
 
-Prefer to build from source? See [Development](#development) below
-(`pio run` + `pio run -t buildfs`).
+### Let Claude Code do it
 
-For the full flashing dance (including the one-time "get the stock
-firmware onto your Wi-Fi first" step), see **[FLASHING.md](./FLASHING.md)**.
-
-## Hand this to Claude Code
-
-You can let [Claude Code](https://claude.com/code) drive the flash for
-you end-to-end — it will detect whether the device is brand-new (stock
-firmware) or already on glimmer, walk you through joining the right
-Wi-Fi AP, verify each step before continuing, build, OTA-flash, and
-restore your config.
-
-### From a clone of this repo
+From a clone of this repo, run the `flash-device` skill:
 
 ```
 > /skill flash-device
 ```
 
-### From anywhere (paste this prompt)
+Or from anywhere, paste:
 
-> Please flash glimmer firmware onto my GeekMagic SmallTV-Ultra.
-> The skill at
-> **https://github.com/Avinava/glimmer/blob/main/.claude/skills/flash-device.md**
-> has the full walkthrough — fetch it, then walk me through:
->
-> 1. Detect device state (brand-new stock vs already on glimmer).
-> 2. Help me join the correct Wi-Fi AP (`GIFTV` for stock,
->    `glimmer-setup` after first glimmer flash).
-> 3. Verify connectivity at every step (curl `/api/state` etc.) —
->    don't assume; always confirm with me before each handoff.
-> 4. Download the prebuilt `firmware.bin` + `littlefs.bin` from the
->    [`latest`](https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin)
->    release (no toolchain needed; build locally only for unpushed changes).
-> 5. OTA-flash filesystem first, then firmware.
-> 6. After full flash, restore my config from backup OR walk me
->    through first-time setup (Wi-Fi → tokens → channels → personalization).
->
-> My device's current location: `<plugged in next to me / on the LAN at
-> <ip>/glimmer.local>`. My laptop OS: `<macOS / Linux / Windows>`.
-
-Claude will read the skill file, build the artifacts, and run the OTA
-dance with you. Don't run any of the curl commands yourself unless
-Claude asks — the order matters (filesystem flash wipes `/config.json`,
-needs the AP-rejoin step to recover).
+> Please flash glimmer onto my GeekMagic SmallTV-Ultra. Follow the skill at
+> **https://github.com/Avinava/glimmer/blob/main/.claude/skills/flash-device.md**:
+> detect whether the device is stock or already on glimmer, verify every step
+> (curl `/api/state`), use the prebuilt
+> [`latest`](https://github.com/Avinava/glimmer/releases/tag/latest) images,
+> keep my settings, and confirm with me before each step.
+> My device is `<next to me / at <ip> / glimmer.local>`; my OS is `<macOS / Linux / Windows>`.
 
 ## Hardware
 
-- **MCU**: ESP8266, 80–160 MHz, ~30 KB free RAM
-- **Display**: 240×240 ST7789V IPS TFT (requires `invertDisplay(true)`)
-- **Backlight**: PWM on GPIO5, **active-low** (0 = full bright, 1023 = off)
-- **Flash**: 4 MB total → 3 MB sketch / 1 MB LittleFS (`eagle.flash.4m1m.ld`)
-- **USB-C**: power only — no data wired to MCU
-- **Network**: Wi-Fi 2.4 GHz only
+- **MCU:** ESP8266 at 160 MHz, about 30 KB of free RAM
+- **Display:** 240×240 ST7789 IPS (needs colour inversion; the web UI has a
+  toggle in case your panel differs)
+- **Backlight:** PWM on GPIO5, active-low
+- **Flash:** 4 MB — firmware slot about 1 MB (room for over-the-air updates),
+  1 MB LittleFS for fonts, the web UI and settings
+- **USB-C:** power only · **Wi-Fi:** 2.4 GHz only
 
-### Known limitations
-
-- ESP8266 BearSSL TLS is tight on heap — glimmer drops the VLW font
-  cache before TLS calls (`Display::releaseFont()`). Don't add more
-  long-lived heap allocations along the Claude/Codex fetch path.
-- No PSRAM, no DMA double-buffer — channel rotation is a ~80 ms instant
-  cut. Within-channel updates are region-based, smooth.
-- Display panel needs the inversion bit; the web UI exposes
-  `Invert colors` toggle in case a panel revision differs.
+On this little chip a secure (TLS) request needs about 25 KB, so glimmer
+fetches one source at a time, only when there's enough free memory, and keeps
+everything else lean.
 
 ## Development
 
-### Build
-
 ```bash
 pio run -e nodemcuv2              # firmware
-pio run -e nodemcuv2 -t buildfs   # filesystem
+pio run -e nodemcuv2 -t buildfs   # filesystem (fonts + web UI)
+pio test -e native                # host tests: parsers, backoff, credentials, history, attention queue
 ```
 
-### Regenerate fonts
-
-The repo ships with pre-built VLW bitmap fonts (`data/fonts/*.vlw`)
-sized to match the design spec. To add a size or family, edit
-`tools/genfonts.py`'s `FONT_MATRIX`, drop the TTF in `tools/ttf/`, and:
-
-```bash
-pip install freetype-py
-python3 tools/genfonts.py
-pio run -e nodemcuv2 -t buildfs
-```
-
-Or trigger via Claude Code:
-
-```
-> /skill regenerate-fonts
-```
-
-### Add a channel
-
-1. Create `src/channels/ch_<name>.cpp` with `chXxxEnabled`, `chXxxDraw`,
-   and (optional) `chXxxTick`.
-2. Add a row to `kChannels[]` in `src/main.cpp`.
-3. (Optional) Add a `showXxx` toggle in `src/core/storage.{h,cpp}`,
-   `src/core/web.cpp`, and `data/web/index.html`.
-
-See `src/channels/ch_clock.cpp` for the reference partial-redraw
-implementation.
-
-## Getting your tokens
-
-glimmer reads your usage by replaying your own browser session against the
-same private endpoints claude.ai and chatgpt.com use for their dashboards.
-You extract each credential from your browser's DevTools, then **set it on
-the Tokens page in the device web UI** — open `http://glimmer.local/` (or
-`http://192.168.4.1/` while the device is in setup-AP mode) and go to
-**Settings → Tokens**.
-
-### Claude — `sessionKey` cookie
-
-**Get it:**
-
-1. Open DevTools on `claude.ai` → **Application → Cookies → `https://claude.ai`**
-2. Copy the value of the `sessionKey` cookie (starts with `sk-ant-sid02-…`)
-
-**Set it:** paste it on the Tokens page under **Claude → Session key**.
-
-### Codex — Bearer token + device ID
-
-The token must come from a **`backend-api`** request, *not* a CDN/asset
-request — CDN requests don't carry an `authorization` header.
-
-**Get it:**
-
-1. Open DevTools on `chatgpt.com` → **Network** tab
-2. Filter for `backend-api` and click any request (conversations, usage, etc.)
-3. From that request's headers, copy two values:
-   - `authorization: Bearer eyJhbGci…` → everything after `Bearer ` is your **token**
-   - `oai-device-id: …` → your **device ID**
-
-**Set them:** paste both on the Tokens page under **Codex → Bearer token**
-and **Device ID**.
-
-> **Shortcut:** right-click the `backend-api` request → **Copy → Copy as
-> cURL** and hand the whole curl to Claude Code — it pulls both values and
-> pushes them to the device for you (`POST /api/settings`).
-
-> **Note:** the Codex bearer token is short-lived (~24 h). When the Codex
-> channel shows a `401`, repeat these steps with a fresh request. The Claude
-> `sessionKey` lasts much longer but eventually needs the same refresh.
+- **Fonts** are pre-built VLW bitmaps in `data/fonts/` (ASCII plus `°` and `·`).
+  To change them, edit `FONT_MATRIX` in `tools/genfonts.py` and run it with
+  `uv run --with freetype-py python tools/genfonts.py --out <dir>` — or the
+  `regenerate-fonts` skill.
+- **Add a channel:** create `src/channels/ch_<name>.cpp` with `chXxxEnabled`,
+  `chXxxDraw` and an optional `chXxxTick`, and add a row to `kChannels[]` in
+  `src/main.cpp`. `tick()` must only repaint what changed — see
+  `ch_clock.cpp`.
+- **Working on the code with an agent?** Start with **[AGENTS.md](AGENTS.md)**
+  (orientation) and **[CLAUDE.md](CLAUDE.md)** (the hard-won rules).
 
 ## Disclaimer — personal & educational use only
 
-glimmer is shared for **personal experimentation and educational
-purposes**.
+glimmer is shared for **personal experimentation and educational purposes**.
 
-It reads your own Claude and Codex usage by sending **your own
-credentials** (a `sessionKey` cookie for claude.ai, a Bearer token for
-chatgpt.com) to internal endpoints those services use to power their
-web UIs. **These endpoints are undocumented and are not part of either
-provider's public API.** They can change or be removed without notice,
-and accessing them programmatically may be inconsistent with
-Anthropic's or OpenAI's Terms of Service depending on interpretation.
+It reads your own Claude and Codex usage by sending **your own credentials** (a
+`sessionKey` cookie for claude.ai, a Bearer token for chatgpt.com) to internal
+endpoints those services use to power their web UIs. **These endpoints are
+undocumented and are not part of either provider's public API.** They can change
+or be removed without notice, and accessing them programmatically may be
+inconsistent with Anthropic's or OpenAI's Terms of Service depending on
+interpretation.
 
-By installing or modifying this firmware you accept full responsibility
-for:
+By installing or modifying this firmware you accept full responsibility for:
 
 - Your own compliance with the relevant Terms of Service.
 - Anything that happens on your own devices, accounts, or network.
-- Securing your credentials — they are stored on the device's LittleFS
-  partition in plaintext (the device runs on your home Wi-Fi behind
-  your router).
+- Securing your credentials — they are stored on the device's LittleFS partition
+  in plaintext (the device runs on your home Wi-Fi behind your router).
 
-This is a hobbyist project shared as-is, with no warranty, no support
-guarantee, and no claim of fitness for any particular purpose. **Do not
-redistribute as a commercial product. Do not use this to access accounts
-that are not yours.**
+This is a hobbyist project shared as-is, with no warranty, no support guarantee,
+and no claim of fitness for any particular purpose. **Do not redistribute as a
+commercial product. Do not use this to access accounts that are not yours.**
 
 ## License
 
-MIT. See [LICENSE](./LICENSE). The MIT license governs the code in
-this repository; it does **not** waive any obligations you may have
-under third-party Terms of Service (Anthropic, OpenAI, etc.). See the
-Disclaimer above.
+MIT. See [LICENSE](./LICENSE). The MIT license governs the code in this
+repository; it does **not** waive any obligations you may have under third-party
+Terms of Service (Anthropic, OpenAI, etc.). See the Disclaimer above.
 
 ## Acknowledgments
 
