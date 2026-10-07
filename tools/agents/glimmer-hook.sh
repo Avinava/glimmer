@@ -20,16 +20,21 @@ url=${GLIMMER_URL:-http://glimmer.local}
 
 command -v jq >/dev/null 2>&1 || exit 0
 
-payload=$(jq -c '{
+# Anything that looks like a credential is masked before it leaves this
+# machine: the device shows the command / message on a desk screen.
+payload=$(jq -c 'def redact:
+  gsub("(?<k>(?i)(bearer|token|key|secret|password|passwd|pwd|auth[a-z]*)[\"'"'"']?\\s*[=: ]\\s*[\"'"'"']?)[^\\s\"'"'"'&|;]+"; "\(.k)***")
+  | gsub("(sk-[A-Za-z0-9_-]{8,}|eyJ[A-Za-z0-9_-]{10,}(\\.[A-Za-z0-9_-]+){0,2}|gh[pousr]_[A-Za-z0-9]{10,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{12,})"; "***");
+{
   event:   (.hook_event_name   // ""),
   type:    (.notification_type // ""),
   session: (.session_id        // ""),
   cwd:     (.cwd               // ""),
   tool:    (.tool_name         // ""),
   detail:  ((.tool_input.command // .tool_input.file_path // .tool_input.path // "")
-            | tostring | .[0:60]),
+            | tostring | redact | .[0:60]),
   message: ((.message // .last_assistant_message // "") | tostring
-            | gsub("\\s+"; " ") | .[0:80])
+            | gsub("\\s+"; " ") | redact | .[0:80])
 }' 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
 

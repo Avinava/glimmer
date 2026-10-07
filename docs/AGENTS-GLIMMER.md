@@ -136,6 +136,11 @@ ignored). The script needs `curl` + `jq`, reads `GLIMMER_URL` /
 `GLIMMER_TOKEN`, gives up after 2 s and always exits 0; `/hook` always
 answers 200, so the display can never block or decide anything.
 
+Because the command and message end up on a desk screen, the script masks
+anything credential-shaped before sending: `key=…`, `token: …`,
+`--password=…`, `Authorization: Bearer …` and bare `sk-…`, `eyJ…` (JWT),
+`ghp_…`, `xox…-`, `AKIA…` values all become `***`.
+
 | event | card |
 |---|---|
 | Claude `Notification` `permission_prompt` / Codex `PermissionRequest` | **approval** — tool as the big word, command below, `NEEDS YOU · 2M` |
