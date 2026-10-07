@@ -1,6 +1,5 @@
 #include "weather_icons.h"
-#include <TFT_eSPI.h>
-extern TFT_eSPI tft;
+#include "display.h"
 
 // 16x16 pixel-art weather glyphs, stored as row bitmasks (MSB-left).
 // Same encoding as Display::drawLogo() in display.cpp.
@@ -237,16 +236,5 @@ static const uint16_t* iconFor(uint8_t wmoCode) {
 
 void WeatherIcon::draw(int x, int y, uint8_t wmoCode, uint16_t color, int scale, bool night) {
     const uint16_t* rows = (night && wmoCode <= 1) ? ICON_MOON : iconFor(wmoCode);
-    for (int row = 0; row < 16; row++) {
-        uint16_t bits = rows[row];
-        if (!bits) continue;
-        for (int col = 0; col < 16; col++) {
-            if (bits & (1 << (15 - col))) {
-                if (scale <= 1)
-                    tft.drawPixel(x + col, y + row, color);
-                else
-                    tft.fillRect(x + col * scale, y + row * scale, scale, scale, color);
-            }
-        }
-    }
+    Display::drawGlyph16(rows, x, y, color, scale);
 }

@@ -28,6 +28,7 @@
 #include "vendor_status.h"
 #include "channel.h"
 #include "night_core.h"
+#include "chrome.h"
 
 // ── Channel registry — declared in their own .cpp files ─────────────────────
 extern bool chClaudeEnabled(const ChannelCtx&);  extern void chClaudeDraw(const ChannelCtx&);
@@ -41,6 +42,7 @@ extern bool chAiDashEnabled  (const ChannelCtx&); extern void chAiDashDraw  (con
 extern bool chForecastEnabled(const ChannelCtx&); extern void chForecastDraw(const ChannelCtx&);
 extern bool chTrendEnabled   (const ChannelCtx&); extern void chTrendDraw   (const ChannelCtx&);
 extern bool chNightEnabled   (const ChannelCtx&); extern void chNightDraw   (const ChannelCtx&);
+extern bool chSetupEnabled   (const ChannelCtx&); extern void chSetupDraw   (const ChannelCtx&);
 extern void chPushTick       (const ChannelCtx&);
 extern void chClockTick      (const ChannelCtx&);
 extern void chHomeTick       (const ChannelCtx&);
@@ -57,6 +59,7 @@ static const Channel kChannels[] = {
     //  name        enabled              draw                  tick
     { "Push",     chPushEnabled,     chPushDraw,     chPushTick     },
     { "Night",    chNightEnabled,    chNightDraw,    chNightTick    },
+    { "Setup",    chSetupEnabled,    chSetupDraw,    nullptr        },
     { "Home",     chHomeEnabled,     chHomeDraw,     chHomeTick     },
     { "Claude",   chClaudeEnabled,   chClaudeDraw,   chClaudeTick   },
     { "Codex",    chCodexEnabled,    chCodexDraw,    chCodexTick    },
@@ -86,8 +89,10 @@ static bool        g_nightFace   = false; // night window + mode clock/dark
 
 // ── Fetch scheduler state ────────────────────────────────────────────────────
 
-enum Job : uint8_t { JOB_CLAUDE, JOB_CODEX, JOB_WEATHER, JOB_STATUS_CLAUDE, JOB_STATUS_OPENAI, JOB_COUNT };
-static const char* kJobName[JOB_COUNT] = {"claude", "codex", "weather", "status-claude", "status-openai"};
+enum Job : uint8_t { JOB_CLAUDE, JOB_CODEX, JOB_CODEX_RESETS, JOB_WEATHER, JOB_STATUS_CLAUDE,
+                    JOB_STATUS_OPENAI, JOB_COUNT };
+static const char* kJobName[JOB_COUNT] = {"claude", "codex", "codex-resets", "weather",
+                                          "status-claude", "status-openai"};
 
 static uint32_t g_jobDue[JOB_COUNT];      // millis when due (0 = now)
 static uint32_t g_lastJobStart = 0;
@@ -227,6 +232,8 @@ static bool jobEnabled(Job j) {
     switch (j) {
         case JOB_CLAUDE:  return !g_settings.claudeKey.isEmpty();
         case JOB_CODEX:   return !g_settings.codexToken.isEmpty();
+        // Reset credits only once the token is known to work.
+        case JOB_CODEX_RESETS: return g_codex.cred == Cred::OK || g_codex.cred == Cred::EXPIRING;
         // Weather feeds the Weather, Forecast and Home channels.
         case JOB_WEATHER: return Weather::configured(g_settings)
                               && (g_settings.showWeather || g_settings.showHome || g_settings.showForecast);
@@ -239,6 +246,7 @@ static bool jobEnabled(Job j) {
 static uint32_t jobIntervalMs(Job j) {
     switch (j) {
         case JOB_WEATHER:       return Weather::intervalMin(g_settings) * 60000UL;
+        case JOB_CODEX_RESETS:  return 60UL * 60000UL;
         case JOB_STATUS_CLAUDE:
         case JOB_STATUS_OPENAI: return VendorStatus::kIntervalMin * 60000UL;
         default:                return g_settings.refreshMin * 60000UL;
@@ -248,7 +256,8 @@ static uint32_t jobIntervalMs(Job j) {
 static const FetchPolicy::State& jobPolicy(Job j) {
     switch (j) {
         case JOB_CLAUDE:        return Api::claudePolicy();
-        case JOB_CODEX:         return Api::codexPolicy();
+        case JOB_CODEX:
+        case JOB_CODEX_RESETS:  return Api::codexPolicy();
         case JOB_WEATHER:       return Weather::policy();
         case JOB_STATUS_CLAUDE: return VendorStatus::policy(VendorStatus::CLAUDE);
         default:                return VendorStatus::policy(VendorStatus::OPENAI);
@@ -272,30 +281,36 @@ uint32_t mainNextFetchInMs() {
 }
 
 // What a channel's draw() depends on, coarsely: a change means a full redraw
-// (loading → data → error transitions), otherwise tick() picks up new values.
-static uint8_t usageShape(bool valid, const char* err, bool authErr) {
-    return (valid ? 1 : 0) | (err[0] ? 2 : 0) | (authErr ? 4 : 0);
+// (loading → data → error / credential-card transitions), otherwise tick()
+// picks up new values.
+static uint16_t usageShape(bool valid, const char* err, Cred cred) {
+    return (valid ? 1 : 0) | (err[0] ? 2 : 0) | ((uint16_t)cred << 2);
 }
 
 static void runJob(Job j) {
-    uint8_t before = 0, after = 0;
+    uint16_t before = 0, after = 0;
     bool ok = false;
     switch (j) {
         case JOB_CLAUDE:
-            before = usageShape(g_claude.valid, g_claude.err, g_claude.authErr);
+            before = usageShape(g_claude.valid, g_claude.err, g_claude.cred);
             ok = Api::fetchClaude(g_settings, g_claude);
-            after = usageShape(g_claude.valid, g_claude.err, g_claude.authErr);
+            Api::refreshCred(g_settings, g_claude, g_codex);
+            after = usageShape(g_claude.valid, g_claude.err, g_claude.cred);
             break;
         case JOB_CODEX:
-            before = usageShape(g_codex.valid, g_codex.err, g_codex.authErr);
+            before = usageShape(g_codex.valid, g_codex.err, g_codex.cred);
             ok = Api::fetchCodex(g_settings, g_codex);
-            after = usageShape(g_codex.valid, g_codex.err, g_codex.authErr);
+            Api::refreshCred(g_settings, g_claude, g_codex);
+            after = usageShape(g_codex.valid, g_codex.err, g_codex.cred);
+            break;
+        case JOB_CODEX_RESETS:
+            ok = Api::fetchCodexResets(g_settings, g_codex);
             break;
         case JOB_WEATHER: {
             const WeatherData& w = Weather::snapshot();
-            before = usageShape(w.valid, w.err, false);
+            before = usageShape(w.valid, w.err, Cred::OK);
             ok = Weather::fetch(g_settings);
-            after = usageShape(w.valid, w.err, false);
+            after = usageShape(w.valid, w.err, Cred::OK);
             break;
         }
         case JOB_STATUS_CLAUDE: ok = VendorStatus::fetch(VendorStatus::CLAUDE); break;
@@ -306,7 +321,8 @@ static void runJob(Job j) {
 
     uint32_t now = millis();
     const FetchPolicy::State& pol = jobPolicy(j);
-    uint32_t waitMs = ok ? jobIntervalMs(j)
+    // The resets job is best-effort: it never adopts the usage backoff.
+    uint32_t waitMs = (ok || j == JOB_CODEX_RESETS) ? jobIntervalMs(j)
                          : (pol.waitS ? pol.waitS * 1000UL : jobIntervalMs(j));
     g_jobDue[j] = now + waitMs;
     g_lastRefresh = now;
@@ -435,6 +451,61 @@ static void apStrandRetry(uint32_t now) {
     }
 }
 
+// ── Device notices ───────────────────────────────────────────────────────────
+//
+// Short cards (12 s) for things the user should act on: a credential that
+// stopped working, a token about to expire, an unused reset credit about to
+// lapse. Rate-limited per (provider, reason); deferred, not dropped, at night
+// or while a user's push card is up.
+
+extern bool pushSystemCard(const char* title, const char* value, const char* subtitle,
+                           uint16_t color, uint32_t durationMs);
+
+static CredState::NoticeLog g_noticeLog[2];          // 0 = Claude, 1 = Codex
+
+static bool notice(int prov, CredState::NoticeReason r, const char* title, const char* value,
+                   const char* sub, uint16_t color) {
+    time_t now = time(nullptr);
+    if (!CredState::noticeDue(g_noticeLog[prov], r, now)) return false;
+    if (!pushSystemCard(title, value, sub, color, 12000UL)) return false;
+    g_noticeLog[prov].last[r] = now;
+    Serial.printf_P(PSTR("[notice] %s %s\n"), title, value);
+    return true;
+}
+
+static void noticesTick() {
+    if (!timeSynced() || nightNow()) return;
+    time_t now = time(nullptr);
+    char sub[40]; snprintf(sub, sizeof(sub), "update at %s.local", MDNS_HOSTNAME);
+    struct P { const char* title; Cred cred; time_t exp; const ResetGrant* g; } ps[2] = {
+        {"CLAUDE KEY",  g_claude.cred, 0,              &g_claude.resets},
+        {"CODEX TOKEN", g_codex.cred,  g_codex.jwtExp, &g_codex.resets},
+    };
+    for (int i = 0; i < 2; i++) {
+        const P& p = ps[i];
+        if (CredState::bad(p.cred)) {
+            const char* v = p.cred == Cred::EXPIRED ? "EXPIRED"
+                          : p.cred == Cred::REJECTED ? "REJECTED" : "BLOCKED";
+            const char* s2 = p.cred == Cred::BLOCKED ? "key is fine - retrying" : sub;
+            if (notice(i, CredState::NOTICE_BAD, p.title, v, s2, credColor(p.cred))) return;
+        } else if (p.cred == Cred::EXPIRING) {
+            long left = (long)(p.exp - now);
+            char v[16];
+            if (left >= 86400L) snprintf(v, sizeof(v), "%ld DAY%s", left / 86400L, left >= 172800L ? "S" : "");
+            else                snprintf(v, sizeof(v), "%ldH LEFT", left / 3600L > 0 ? left / 3600L : 1);
+            if (notice(i, CredState::NOTICE_EXPIRING, p.title, v, sub, Theme::AMBER)) return;
+        }
+        // An unused limit-reset credit that lapses within 48 h.
+        if (p.g->left && p.g->endsAt > now && p.g->endsAt - now < 48L * 3600L) {
+            char v[16]; snprintf(v, sizeof(v), "%u RESET%s", p.g->left, p.g->left > 1 ? "S" : "");
+            char d[8];  TimeUtil::shortDuration((long)(p.g->endsAt - now), d, sizeof(d));
+            char s3[40]; snprintf(s3, sizeof(s3), "unused - expires in %s", d);
+            const char* who = i == 0 ? "CLAUDE" : "CODEX";
+            if (notice(i, CredState::NOTICE_RESET, who, v, s3, Theme::AMBER)) return;
+        }
+    }
+}
+
 // ── Setup / loop ─────────────────────────────────────────────────────────────
 
 void setup() {
@@ -451,6 +522,7 @@ void setup() {
     Display::setInvert(g_settings.invertDisplay);
     Weather::begin();
     UsageHistory::begin();
+    Api::refreshCred(g_settings, g_claude, g_codex);
 
     Display::drawSplash("connecting WiFi");
     if (!tryConnect()) {
@@ -550,19 +622,32 @@ void loop() {
     // Every 10 s: night window, staleness and status badges can change what
     // should be on screen (night face in/out) or how it looks (dimmed data).
     static uint32_t lastState = 0;
-    static uint8_t  stateSig  = 0xFF;
+    static uint32_t stateSig  = 0xFFFFFFFF;
     if (!g_apMode && now - lastState >= 10000UL) {
         lastState = now;
-        uint8_t sig = (nightNow() ? 1 : 0)
-                    | (Api::isStale(g_claude.lastOk, g_settings) ? 2 : 0)
-                    | (Api::isStale(g_codex.lastOk, g_settings)  ? 4 : 0)
-                    | (Weather::isStale(g_settings)              ? 8 : 0);
+        // Credential state tracks the clock too (a JWT crossing EXPIRING/EXPIRED).
+        Api::refreshCred(g_settings, g_claude, g_codex);
+        uint32_t sig = (nightNow() ? 1 : 0)
+                     | (Api::isStale(g_claude.lastOk, g_settings) ? 2 : 0)
+                     | (Api::isStale(g_codex.lastOk, g_settings)  ? 4 : 0)
+                     | (Weather::isStale(g_settings)              ? 8 : 0)
+                     | ((uint32_t)g_claude.cred << 4) | ((uint32_t)g_codex.cred << 8);
         if (sig != stateSig) {
-            bool nightChanged = (sig ^ stateSig) & 1;
+            // Night and credential changes alter what draw() paints; staleness
+            // is handled by the channels' tick().
+            bool redraw = ((sig ^ stateSig) & 0xFF1) != 0;
             stateSig = sig;
             applyBrightness();
-            refreshScreen(nightChanged);
+            refreshScreen(redraw);
         }
+    }
+
+    // Once a minute: device notices (token expiring/expired, reset credit
+    // about to lapse) as short cards — never at night, never over a user card.
+    static uint32_t lastNotice = 0;
+    if (!g_apMode && now - lastNotice >= 60000UL) {
+        lastNotice = now;
+        noticesTick();
     }
 
     // Channel auto-rotate — instant cut (no transition animation).
@@ -599,6 +684,8 @@ void loop() {
 
 // Settings were saved from the web UI: apply what can change at runtime.
 void mainSettingsChanged() {
+    // A newly pasted key/token is fetched right away, not at the next interval.
+    if (Api::refreshCred(g_settings, g_claude, g_codex)) mainTriggerRefresh();
     Display::setInvert(g_settings.invertDisplay);
     Storage::applyTimezone(g_settings);
     applyBrightness();

@@ -57,6 +57,90 @@ inline void claudeFilter(JsonDocument& f) {
     l["resets_at"] = true;
     l["scope"]["model"]["display_name"] = true;
     l["scope"]["model"]["id"]           = true;
+    // Limit-reset grants ride on a rotating top-level codename, so match the
+    // grant SHAPE under any key ("*" is ArduinoJson's filter wildcard; it only
+    // applies to keys not named above).
+    JsonObject g = f["*"]["grants"][0].to<JsonObject>();
+    g["resets_left"] = true;
+    g["ends_at"]     = true;
+    g["usable_now"]  = true;
+    g["label"]       = true;
+    g["clears"]      = true;
+}
+
+// Keep the more useful of two grants: one usable now beats one that isn't;
+// otherwise the one that expires first (use it or lose it).
+inline void takeGrant(ResetGrant& best, int left, time_t ends, bool usable, const char* title) {
+    if (left < 1) return;
+    bool better = best.left == 0
+               || (usable && !best.usable)
+               || (usable == best.usable && ends && (!best.endsAt || ends < best.endsAt));
+    if (!better) return;
+    best.left   = (uint8_t)(left > 255 ? 255 : left);
+    best.endsAt = ends;
+    best.usable = usable;
+    snprintf(best.title, sizeof(best.title), "%s", title ? title : "");
+}
+
+// What a Claude grant clears, in words: "weekly", "session + weekly".
+inline void grantCovers(JsonArrayConst clears, char* out, size_t n) {
+    if (n) out[0] = '\0';
+    size_t used = 0;
+    for (JsonVariantConst c : clears) {
+        const char* k = c.as<const char*>();
+        if (!k) continue;
+        const char* w = strstr(k, "opus") ? "opus" : strstr(k, "sonnet") ? "sonnet"
+                      : (!strcmp(k, "five_hour") || strstr(k, "5h")) ? "session"
+                      : (!strcmp(k, "seven_day") || strstr(k, "7d")) ? "weekly" : nullptr;
+        if (!w) continue;
+        int k2 = snprintf(out + used, n - used, "%s%s", used ? " + " : "", w);
+        if (k2 < 0 || used + k2 >= n) break;
+        used += k2;
+    }
+}
+
+inline void claudeGrants(JsonVariantConst d, ResetGrant& out) {
+    out = ResetGrant{};
+    for (JsonPairConst kv : d.as<JsonObjectConst>()) {
+        JsonArrayConst grants = kv.value()["grants"].as<JsonArrayConst>();
+        if (grants.isNull()) continue;
+        for (JsonObjectConst g : grants) {
+            if (g["resets_left"].isNull()) continue;
+            char covers[24];
+            grantCovers(g["clears"].as<JsonArrayConst>(), covers, sizeof(covers));
+            takeGrant(out, g["resets_left"] | 0, TimeUtil::parseIso8601(g["ends_at"] | ""),
+                      g["usable_now"] | false, covers);
+        }
+    }
+}
+
+// ── chatgpt.com /backend-api/wham/rate-limit-reset-credits ──────────────────
+// available_count is authoritative for how many; the earliest available
+// credit's expires_at says when the first one is lost.
+inline void codexResetsFilter(JsonDocument& f) {
+    f["available_count"] = true;
+    JsonObject c = f["credits"][0].to<JsonObject>();
+    c["status"] = true;
+    c["expires_at"] = true;
+    c["title"] = true;
+}
+
+inline bool codexResets(JsonVariantConst d, ResetGrant& out) {
+    out = ResetGrant{};
+    if (d["available_count"].isNull() && d["credits"].isNull()) return false;
+    int left = d["available_count"] | 0;
+    time_t earliest = 0;
+    const char* title = "";
+    int counted = 0;
+    for (JsonObjectConst c : d["credits"].as<JsonArrayConst>()) {
+        if (strcmp(c["status"] | "", "available") != 0) continue;
+        counted++;
+        time_t ends = TimeUtil::parseIso8601(c["expires_at"] | "");
+        if (ends && (!earliest || ends < earliest)) { earliest = ends; title = c["title"] | ""; }
+    }
+    if (d["available_count"].isNull()) left = counted;
+    if (left > 0) takeGrant(out, left, earliest, true, title);
+    return true;
 }
 
 // Returns false when the payload carries neither the session nor the weekly
@@ -113,6 +197,7 @@ inline bool claude(JsonVariantConst d, ClaudeData& out) {
         setLabel(out.models[slot], f.label);
         slot++;
     }
+    claudeGrants(d, out.resets);
     return out.sessionPct >= 0 || out.weeklyPct >= 0;
 }
 

@@ -38,7 +38,7 @@ bool chWeatherEnabled(const ChannelCtx& ctx) {
 static uint16_t metaFor(const Settings& s, char* buf, size_t n) {
     if (Weather::isStale(s)) {
         char d[8]; TimeUtil::shortDuration((long)(time(nullptr) - s_w.lastOk), d, sizeof(d));
-        snprintf(buf, n, "STALE %s", d);
+        snprintf_P(buf, n, PSTR("STALE %s"), d);
         return Theme::AMBER;
     }
     time_t now = time(nullptr);
@@ -47,9 +47,9 @@ static uint16_t metaFor(const Settings& s, char* buf, size_t n) {
     if (today.sunrise && now < today.sunrise)    { tag = "RISE"; at = today.sunrise; }
     else if (today.sunset && now < today.sunset) { tag = "SET";  at = today.sunset; }
     else                                         { tag = "RISE"; at = s_w.forecast[1].sunrise; }
-    if (!at) { snprintf(buf, n, "OUT"); return Theme::MUTED; }
+    if (!at) { snprintf_P(buf, n, PSTR("OUT")); return Theme::MUTED; }
     char hm[10]; ClockFmt::hm(at, s.clock24h, hm, sizeof(hm));
-    snprintf(buf, n, "%s %s", tag, hm);
+    snprintf_P(buf, n, PSTR("%s %s"), tag, hm);
     return Theme::MUTED;
 }
 
@@ -60,21 +60,21 @@ static void paintRightStack(bool f) {
     char line[24];
     int ry = 36;
     if (s_w.feelsC > -900.0f) {
-        snprintf(line, sizeof(line), "feels %.0f°", Weather::toDisplay(s_w.feelsC, f));
+        snprintf_P(line, sizeof(line), PSTR("feels %.0f°"), Weather::toDisplay(s_w.feelsC, f));
         tft.drawString(line, SCREEN_W - 12, ry); ry += 18;
     }
     if (s_w.humidity >= 0) {
-        snprintf(line, sizeof(line), "hum %d%%", s_w.humidity);
+        snprintf_P(line, sizeof(line), PSTR("hum %d%%"), s_w.humidity);
         tft.drawString(line, SCREEN_W - 12, ry); ry += 18;
     }
     if (s_w.windKmh >= 0) {
-        snprintf(line, sizeof(line), "wind %.0fkm", s_w.windKmh);
+        snprintf_P(line, sizeof(line), PSTR("wind %.0fkm"), s_w.windKmh);
         tft.drawString(line, SCREEN_W - 12, ry); ry += 18;
     }
     if (s_w.forecast[0].uvMax >= 0) {
         float uv = s_w.forecast[0].uvMax;
         tft.setTextColor(uv >= 8 ? Theme::CORAL : uv >= 6 ? Theme::AMBER : Theme::MUTED, Theme::BG);
-        snprintf(line, sizeof(line), "uv %.0f", uv);
+        snprintf_P(line, sizeof(line), PSTR("uv %.0f"), uv);
         tft.drawString(line, SCREEN_W - 12, ry);
     }
 }
@@ -93,7 +93,7 @@ static void miniDay(int x, int y, int w, const WeatherDay& d, const char* label,
         float mx = Weather::toDisplay(d.tmax, fahrenheit);
         float mn = Weather::toDisplay(d.tmin, fahrenheit);
         char buf[16];
-        snprintf(buf, sizeof(buf), "%.0f/%.0f", mx, mn);
+        snprintf_P(buf, sizeof(buf), PSTR("%.0f/%.0f"), mx, mn);
         tft.setTextColor(Theme::INK, Theme::PANEL);
         tft.drawString(buf, x + w/2, y + 30);
     }
@@ -106,7 +106,7 @@ static void miniDay(int x, int y, int w, const WeatherDay& d, const char* label,
 
 static void paintTemp(bool f, bool stale) {
     char tBuf[8];
-    snprintf(tBuf, sizeof(tBuf), "%.0f", Weather::toDisplay(s_w.tempC, f));
+    snprintf_P(tBuf, sizeof(tBuf), PSTR("%.0f"), Weather::toDisplay(s_w.tempC, f));
     tft.fillRect(10, 32, 120, 82, Theme::BG);
     Display::useFont("VT323-86");
     tft.setTextDatum(TL_DATUM);

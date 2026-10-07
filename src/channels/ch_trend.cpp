@@ -60,8 +60,8 @@ static void paintBlock(int idx, const Block& b, const History::Trend& t, float s
         strftime(peak, sizeof(peak), "%a", &tm);
         for (char* p = peak; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
     }
-    if (t.have[6] && peak[0]) snprintf(right, sizeof(right), "TODAY %.0f \xC2\xB7 PEAK %s", t.burn[6], peak);
-    else if (t.have[6])       snprintf(right, sizeof(right), "TODAY %.0f", t.burn[6]);
+    if (t.have[6] && peak[0]) snprintf_P(right, sizeof(right), PSTR("TODAY %.0f \xC2\xB7 PEAK %s"), t.burn[6], peak);
+    else if (t.have[6])       snprintf_P(right, sizeof(right), PSTR("TODAY %.0f"), t.burn[6]);
     Display::useFont("DMMono-11");
     tft.setTextDatum(TR_DATUM);
     tft.setTextColor(Theme::MUTED, Theme::BG);

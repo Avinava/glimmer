@@ -13,6 +13,7 @@ struct PushCard {
     uint32_t expiresAt        = 0;
     uint32_t initialDurationMs = 0;
     bool     active           = false;
+    bool     system           = false;   // a device notice, not a user push
 };
 
 static PushCard g_card;
@@ -30,17 +31,34 @@ void pushCardSet(const char* title, const char* value, const char* subtitle,
     g_card.initialDurationMs = durationMs;
     g_card.expiresAt         = millis() + durationMs;
     g_card.active            = true;
+    g_card.system            = false;
 }
 
 void pushCardClear() { g_card.active = false; }
 
+static bool cardLive() {
+    return g_card.active && (int32_t)(g_card.expiresAt - millis()) > 0;
+}
+
+// Device notice ("CODEX TOKEN / 2 DAYS"). Never replaces a user's card that
+// is still showing; returns false so the caller can try again later.
+bool pushSystemCard(const char* title, const char* value, const char* subtitle,
+                    uint16_t color, uint32_t durationMs) {
+    if (cardLive() && !g_card.system) return false;
+    pushCardSet(title, value, subtitle, color, durationMs);
+    g_card.system = true;
+    return true;
+}
+
 extern bool mainNightFace();
 
 // Quiet hours: while the night face is up (night mode "clock" or "dark"),
-// only red/alert cards interrupt — anything else expires unseen.
+// only a user's red/alert card interrupts — anything else expires unseen.
+// Device notices never show at night (the notice engine defers them).
 bool chPushEnabled(const ChannelCtx& ctx) {
-    if (!g_card.active || (int32_t)(g_card.expiresAt - millis()) <= 0) return false;
-    return !mainNightFace() || g_card.color == Theme::CORAL;
+    if (!cardLive()) return false;
+    if (!mainNightFace()) return true;
+    return !g_card.system && g_card.color == Theme::CORAL;
 }
 
 static void paintPushBar() {

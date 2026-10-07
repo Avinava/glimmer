@@ -40,8 +40,7 @@ bool fetch(Vendor v) {
     snprintf(url, sizeof(url), "%s/api/v2/status.json", kHost[v]);
     Level level = UNKNOWN;
     char  desc[40] = "";
-    bool parsed; long ra;
-    int code = Api::tlsGetStream(url, noHeaders, [&](Stream& body) {
+    Api::TlsResult r = Api::tlsGetStream(url, noHeaders, [&](Stream& body) {
         JsonDocument filter;
         filter["status"]["indicator"]   = true;
         filter["status"]["description"] = true;
@@ -50,9 +49,9 @@ bool fetch(Vendor v) {
         level = parseLevel(doc["status"]["indicator"] | "");
         snprintf(desc, sizeof(desc), "%s", (const char*)(doc["status"]["description"] | ""));
         return true;
-    }, parsed, ra);
-    if (code != 200 || !parsed) {
-        FetchPolicy::onFailure(s_pol[v], code == 200 ? 0 : code, ra);
+    });
+    if (r.code != 200 || !r.parsed) {
+        FetchPolicy::onFailure(s_pol[v], r.code == 200 ? 0 : r.code, r.retryAfter, r.markup);
         return false;
     }
     FetchPolicy::onSuccess(s_pol[v], time(nullptr));

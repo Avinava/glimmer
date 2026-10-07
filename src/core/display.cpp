@@ -72,16 +72,51 @@ static const uint16_t LOGO_ROWS[16] = {
     0x0000, 0x0000, 0x0000, 0x0000,
 };
 
-void Display::drawLogo(int x, int y, uint16_t color) {
+void Display::drawGlyph16(const uint16_t rows[16], int x, int y, uint16_t color, int scale) {
     for (int row = 0; row < 16; row++) {
-        uint16_t bits = LOGO_ROWS[row];
+        uint16_t bits = rows[row];
         if (!bits) continue;
         for (int col = 0; col < 16; col++) {
-            if (bits & (1 << (15 - col))) {
-                tft.drawPixel(x + col, y + row, color);
-            }
+            if (!(bits & (1 << (15 - col)))) continue;
+            if (scale <= 1) tft.drawPixel(x + col, y + row, color);
+            else tft.fillRect(x + col * scale, y + row * scale, scale, scale, color);
         }
     }
+}
+
+void Display::drawLogo(int x, int y, uint16_t color) {
+    drawGlyph16(LOGO_ROWS, x, y, color);
+}
+
+// ── key — ring on the left, shaft + two teeth to the right ──
+//   ................
+//   ................
+//   ................
+//   ..####..........
+//   .#....#.........
+//   #......#........
+//   #......########.
+//   #......########.
+//   #......#...##.#.
+//   .#....#....##.#.
+//   ..####..........
+static const uint16_t KEY_ROWS[16] = {
+    0x0000, 0x0000, 0x0000, 0x3C00,
+    0x4200, 0x8100, 0x81FE, 0x81FE,
+    0x811A, 0x421A, 0x3C00, 0x0000,
+    0x0000, 0x0000, 0x0000, 0x0000,
+};
+
+void Display::drawKeyGlyph(int x, int y, uint16_t color, int scale) {
+    drawGlyph16(KEY_ROWS, x, y, color, scale);
+}
+
+// Circle with a diagonal slash, ~30 px across, 2 px stroke.
+void Display::drawBlockedGlyph(int cx, int cy, uint16_t color) {
+    tft.drawCircle(cx, cy, 14, color);
+    tft.drawCircle(cx, cy, 13, color);
+    for (int d = -1; d <= 1; d++)
+        tft.drawLine(cx - 9 + d, cy + 9, cx + 9 + d, cy - 9, color);
 }
 
 void Display::setFont(FontTier t) { useFont(nameFor(t)); }

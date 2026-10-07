@@ -28,6 +28,8 @@ static char   s_secSub[24]    = "";
 static float  s_modelPct[3]       = {-2.f, -2.f, -2.f};
 static char   s_modelLabel[3][12] = {"", "", ""};
 static char   s_pace[20]      = "";
+static char   s_resets[28]    = "";
+static Cred   s_cred          = Cred::NOT_SET;
 static MetaSlot s_meta;
 static int    s_loadDot = -1;
 
@@ -46,7 +48,7 @@ static const char* modelTag(const ClaudeData& d) {
 
 static MetaSlot metaFor(const ChannelCtx& ctx) {
     return usageMeta(*ctx.settings, ctx.claude->lastOk, VendorStatus::CLAUDE,
-                     modelTag(*ctx.claude));
+                     modelTag(*ctx.claude), ctx.claude->cred, 0);
 }
 
 static void paceFor(const ClaudeData& d, char* buf, size_t n) {
@@ -69,8 +71,8 @@ static void paintSessReset(time_t resetEpoch) {
 
 static void paintSessHero(float pct, bool stale) {
     char pctBuf[8];
-    if (pct < 0) snprintf(pctBuf, sizeof(pctBuf), "--");
-    else         snprintf(pctBuf, sizeof(pctBuf), "%.0f", pct);
+    if (pct < 0) snprintf_P(pctBuf, sizeof(pctBuf), PSTR("--"));
+    else         snprintf_P(pctBuf, sizeof(pctBuf), PSTR("%.0f"), pct);
     // Clear hero band + suffix area
     tft.fillRect(10, 46, SCREEN_W - 20, 76, Theme::BG);
 
@@ -119,20 +121,40 @@ static void paintWeeklyCompact(const char* label, float pct, time_t weekReset) {
     Display::pixelBar(12, 164, SCREEN_W - 24, 4, pct < 0 ? 0 : pct, uc);
 }
 
+// Bottom rows, in priority order: credential banner > WK PACE > RESETS >
+// per-model windows (3 rows total).
 static void paintBottomRows(const ClaudeData& d, const char* pace) {
     const int startY = 176, rowH = 14;
     tft.fillRect(0, startY, SCREEN_W, rowH * 3, Theme::BG);
-    Display::useFont("DMMono-11");
     int row = 0;
-    if (pace[0]) {
-        tft.setTextDatum(TL_DATUM);
-        tft.setTextColor(Theme::MUTED, Theme::BG);
-        tft.drawString("WK PACE", 12, startY);
-        tft.setTextDatum(TR_DATUM);
-        tft.setTextColor(strncmp(pace, "EMPTY", 5) == 0 ? Theme::CORAL : Theme::INK_DIM, Theme::BG);
-        tft.drawString(pace, SCREEN_W - 12, startY);
+    if (CredState::bad(d.cred)) {
+        Chrome::credBanner(startY, true, d.cred);
         row = 1;
     }
+    Display::useFont("DMMono-11");
+    if (pace[0]) {
+        int y = startY + row * rowH;
+        tft.setTextDatum(TL_DATUM);
+        tft.setTextColor(Theme::MUTED, Theme::BG);
+        tft.drawString("WK PACE", 12, y);
+        tft.setTextDatum(TR_DATUM);
+        tft.setTextColor(strncmp(pace, "EMPTY", 5) == 0 ? Theme::CORAL : Theme::INK_DIM, Theme::BG);
+        tft.drawString(pace, SCREEN_W - 12, y);
+        row++;
+    }
+    char resets[28]; Chrome::resetsText(d.resets, resets, sizeof(resets));
+    if (resets[0] && row < 3) {
+        int y = startY + row * rowH;
+        tft.setTextDatum(TL_DATUM);
+        tft.setTextColor(Theme::MINT, Theme::BG);
+        tft.drawString("RESETS", 12, y);
+        tft.setTextDatum(TR_DATUM);
+        tft.setTextColor(d.resets.usable ? Theme::INK_DIM : Theme::MUTED, Theme::BG);
+        tft.drawString(resets, SCREEN_W - 12, y);
+        row++;
+    }
+    strncpy(s_resets, resets, sizeof(s_resets) - 1);
+    s_cred = d.cred;
     for (int i = 0; i < 3 && row < 3; i++) {
         if (d.models[i].pct < 0 || !d.models[i].label[0]) continue;
         int y = startY + row * rowH;
@@ -141,7 +163,7 @@ static void paintBottomRows(const ClaudeData& d, const char* pace) {
         tft.drawString(d.models[i].label, 12, y);
         uint16_t mc = Display::usageColor(d.models[i].pct);
         Display::pixelBar(100, y + 3, 80, 5, d.models[i].pct, mc);
-        char buf[6]; snprintf(buf, sizeof(buf), "%d%%", (int)d.models[i].pct);
+        char buf[6]; snprintf_P(buf, sizeof(buf), PSTR("%d%%"), (int)d.models[i].pct);
         tft.setTextDatum(TR_DATUM);
         tft.setTextColor(mc, Theme::BG);
         tft.drawString(buf, SCREEN_W - 12, y);
@@ -162,14 +184,9 @@ void chClaudeDraw(const ChannelCtx& ctx) {
     s_meta = metaFor(ctx);
     Display::statusBar("Claude", s_meta.text, Theme::CORAL, s_meta.color);
 
-    if (d.err[0]) {
-        Display::useFont("Silkscreen-16");
-        tft.setTextDatum(MC_DATUM);
-        tft.setTextColor(Theme::CORAL, Theme::BG);
-        tft.drawString(d.err, SCREEN_W/2, 100);
-        Display::useFont("DMMono-11");
-        tft.setTextColor(Theme::MUTED, Theme::BG);
-        tft.drawString(errorHint(d.authErr), SCREEN_W/2, 124);
+    // Nothing to show yet and something is wrong: the credential/offline card.
+    if (!d.valid && (CredState::bad(d.cred) || d.err[0])) {
+        Chrome::credCard(true, d.cred, 0, d.err);
         s_heroPct = -2.f; s_secPct = -2.f;
         s_heroReset[0] = 0; s_secSub[0] = 0;
         return;
@@ -191,7 +208,7 @@ void chClaudeDraw(const ChannelCtx& ctx) {
     const float secPct   = swapped ? d.sessionPct  : d.weeklyPct;
     const time_t heroRst = swapped ? d.weeklyReset : d.sessionReset;
     const time_t secRst  = swapped ? d.sessionReset: d.weeklyReset;
-    s_stale = Api::isStale(d.lastOk, *ctx.settings);
+    s_stale = dimData(*ctx.settings, d.lastOk, d.cred);
 
     Display::useFont("DMMono-11");
     tft.setTextDatum(TL_DATUM);
@@ -215,7 +232,7 @@ void chClaudeDraw(const ChannelCtx& ctx) {
 void chClaudeTick(const ChannelCtx& ctx) {
     if (!ctx.claude) return;
     const ClaudeData& d = *ctx.claude;
-    if (d.err[0]) return;
+    if (!d.valid && (CredState::bad(d.cred) || d.err[0])) return;   // static card
     if (!d.valid) {                       // loading — sweep the chase dots
         int lit = (ctx.now_ms / 150) % 5;
         if (lit != s_loadDot) {
@@ -246,7 +263,7 @@ void chClaudeTick(const ChannelCtx& ctx) {
     }
 
     float p = (heroPct < 0) ? -2.f : heroPct;
-    bool stale = Api::isStale(d.lastOk, *ctx.settings);
+    bool stale = dimData(*ctx.settings, d.lastOk, d.cred);
     if (fabsf(p - s_heroPct) > 0.4f || stale != s_stale) {
         paintSessHero(heroPct, stale);
         s_heroPct = p;
@@ -277,10 +294,12 @@ void chClaudeTick(const ChannelCtx& ctx) {
         if (fabsf(mp - s_modelPct[i]) > 0.4f) rowsDirty = true;
         if (strcmp(d.models[i].label, s_modelLabel[i]) != 0) rowsDirty = true;
     }
+    if (d.cred != s_cred) rowsDirty = true;
     char pace[20] = "";
     if (rowsDirty || minTick) {
         paceFor(d, pace, sizeof(pace));
-        if (strcmp(pace, s_pace) != 0) rowsDirty = true;
+        char resets[28]; Chrome::resetsText(d.resets, resets, sizeof(resets));
+        if (strcmp(pace, s_pace) != 0 || strcmp(resets, s_resets) != 0) rowsDirty = true;
     }
     if (rowsDirty) paintBottomRows(d, pace);
 

@@ -34,9 +34,16 @@ namespace Api {
     void adviceText(const ClaudeData& cl, const CodexData& cx, char* buf, size_t n);
 
     // One fetch job each. Update the data passed in and the source's policy
-    // state (backoff / auth latch). Return true on success.
+    // state (backoff / auth latch / edge block). Return true on success.
     bool fetchClaude(const Settings& s, ClaudeData& out);
     bool fetchCodex(const Settings& s, CodexData& out);
+    // Hourly: Codex limit-reset credits (separate endpoint).
+    bool fetchCodexResets(const Settings& s, CodexData& out);
+
+    // Re-derive the credential state (cheap; call after a fetch, on settings
+    // change, and periodically so EXPIRING/EXPIRED track the clock). Returns
+    // true when a credential itself changed (a new key was pasted).
+    bool refreshCred(const Settings& s, ClaudeData& cl, CodexData& cx);
 
     const FetchPolicy::State& claudePolicy();
     const FetchPolicy::State& codexPolicy();
@@ -44,14 +51,17 @@ namespace Api {
     // Helpers for displaying countdowns.
     String formatCountdown(time_t t);
 
+    struct TlsResult {
+        int  code = 0;          // HTTP code, negative = transport error
+        bool parsed = false;    // what onBody returned (200 only)
+        long retryAfter = -1;   // Retry-After in seconds, -1 when absent
+        bool markup = false;    // a 401/403 answered with HTML (edge challenge)
+    };
+
     // Shared TLS GET that streams the body into `onBody` (called only on 200).
-    // Returns the HTTP code (negative = transport error). `retryAfter` is the
-    // parsed Retry-After header in seconds, -1 when absent. `parsed` reports
-    // what onBody returned.
-    int tlsGetStream(const char* url,
-                     const std::function<void(HTTPClient&)>& addHeaders,
-                     const std::function<bool(Stream&)>& onBody,
-                     bool& parsed, long& retryAfter);
+    TlsResult tlsGetStream(const char* url,
+                           const std::function<void(HTTPClient&)>& addHeaders,
+                           const std::function<bool(Stream&)>& onBody);
 
     // Debug telemetry from the last Claude usage fetch (surfaced in /api/state).
     int  lastClaudeHttp();        // HTTP code (or negative HTTPClient error)

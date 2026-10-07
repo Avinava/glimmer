@@ -139,6 +139,28 @@ Generator: `tools/genfonts.py` (freetype-py). TTFs live in
   3 dark (backlight off). In 2/3 only CORAL push cards show (and wake a
   dark panel). Window is minutes past midnight; start == end disables.
 
+## Credential states (`src/data/cred_state.h`)
+
+- One model for every surface: `NOT_SET / CHECKING / OK / EXPIRING / EXPIRED /
+  REJECTED / BLOCKED`, derived by `Api::refreshCred()` after each fetch, on
+  settings change and every 10 s (so a JWT crossing its `exp` is noticed).
+- **A 401/403 whose body is HTML is an edge (Cloudflare) challenging the
+  device, not a dead key** → `BLOCKED`, never fed to the auth latch, retried
+  every 15 min. Only JSON 401/403 ×2 → `REJECTED`.
+- Codex token `exp` comes from its JWT: `EXPIRING` < 72 h, `EXPIRED` skips the
+  fetch entirely. Claude's sessionKey has no expiry — it only fails.
+- Surfaces (all via `src/channels/chrome.{h,cpp}`):
+  - no data: `Chrome::credCard` (glyph, headline, reason, glimmer.local);
+  - data: dimmed values + `Chrome::credBanner`;
+  - Home/AI rows: `Chrome::credLine`;
+  - status meta: `usageMeta`.
+- Notices: `pushSystemCard` (12 s), rate-limited per provider/reason
+  (`CredState::NoticeLog`), never at night, never over a user's card.
+- No keys at all → `Setup` channel (hidden once either key is set, or both
+  usage channels are switched off).
+- Limit-reset credits: Claude `grants[]` under any top-level key (filter
+  wildcard `"*"`), Codex `wham/rate-limit-reset-credits` hourly.
+
 ## System screens (splash / connecting / OTA) — same discipline
 
 - `Display::drawSplash()`, `drawConnecting()`, `drawOtaProgress()` cache

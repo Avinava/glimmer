@@ -227,6 +227,114 @@ void test_trend_sums_drops_and_skips_resets() {
     TEST_ASSERT_FALSE(t.have[0]);
 }
 
+// ── Credential state ────────────────────────────────────────────────────────
+
+void test_markup_403_blocks_but_never_latches_auth() {
+    FetchPolicy::State st;
+    FetchPolicy::onFailure(st, 403, -1, true);
+    FetchPolicy::onFailure(st, 403, -1, true);
+    FetchPolicy::onFailure(st, 403, -1, true);
+    TEST_ASSERT_FALSE(st.authLatched);
+    TEST_ASSERT_TRUE(FetchPolicy::blocked(st));
+    TEST_ASSERT_TRUE(st.waitS >= FetchPolicy::kBlockedWaitS);
+    TEST_ASSERT_EQUAL(Cred::BLOCKED, CredState::derive(true, st, 0, T0, true));
+    // A JSON 403 after the challenges starts the auth count from scratch.
+    FetchPolicy::onFailure(st, 403, -1, false);
+    TEST_ASSERT_FALSE(FetchPolicy::blocked(st));
+    TEST_ASSERT_FALSE(st.authLatched);
+}
+
+void test_jwt_exp_decode() {
+    TEST_ASSERT_EQUAL(1790000000,
+        CredState::jwtExp("eyJhbGciOiJub25lIn0.eyJzdWIiOiJ1LTEiLCJleHAiOjE3OTAwMDAwMDAsImlhdCI6MTc4OTAwMDAwMH0.sig"));
+    TEST_ASSERT_EQUAL(1790003600,
+        CredState::jwtExp("eyJhbGciOiJub25lIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsieCI6MX0sImV4cCI6MTc5MDAwMzYwMH0.s"));
+    TEST_ASSERT_EQUAL(0, CredState::jwtExp("sk-ant-sid02-not-a-jwt"));
+    TEST_ASSERT_EQUAL(0, CredState::jwtExp("a.b"));
+    TEST_ASSERT_EQUAL(0, CredState::jwtExp(""));
+}
+
+void test_cred_derivation_order() {
+    FetchPolicy::State ok;
+    TEST_ASSERT_EQUAL(Cred::NOT_SET,  CredState::derive(false, ok, 0, T0, false));
+    TEST_ASSERT_EQUAL(Cred::CHECKING, CredState::derive(true,  ok, 0, T0, false));
+    TEST_ASSERT_EQUAL(Cred::OK,       CredState::derive(true,  ok, 0, T0, true));
+    TEST_ASSERT_EQUAL(Cred::EXPIRING, CredState::derive(true,  ok, T0 + 3600, T0, true));
+    TEST_ASSERT_EQUAL(Cred::OK,       CredState::derive(true,  ok, T0 + 30L * 86400L, T0, true));
+    TEST_ASSERT_EQUAL(Cred::EXPIRED,  CredState::derive(true,  ok, T0 - 1, T0, true));
+    FetchPolicy::State rej;
+    FetchPolicy::onFailure(rej, 401, -1);
+    FetchPolicy::onFailure(rej, 401, -1);
+    TEST_ASSERT_EQUAL(Cred::REJECTED, CredState::derive(true, rej, 0, T0, true));
+    // Our own clock's verdict (expired JWT) outranks upstream's.
+    TEST_ASSERT_EQUAL(Cred::EXPIRED,  CredState::derive(true, rej, T0 - 1, T0, true));
+    TEST_ASSERT_TRUE(CredState::bad(Cred::BLOCKED));
+    TEST_ASSERT_FALSE(CredState::bad(Cred::EXPIRING));
+}
+
+void test_cred_meta_labels() {
+    char b[16];
+    CredState::meta(Cred::EXPIRING, T0 + 2 * 86400L + 60, T0, b, sizeof(b));
+    TEST_ASSERT_EQUAL_STRING("EXPIRES 2D", b);
+    CredState::meta(Cred::REJECTED, 0, T0, b, sizeof(b));
+    TEST_ASSERT_EQUAL_STRING("RE-AUTH", b);
+    CredState::meta(Cred::OK, 0, T0, b, sizeof(b));
+    TEST_ASSERT_EQUAL_STRING("", b);
+}
+
+void test_notice_rate_limit() {
+    CredState::NoticeLog log;
+    TEST_ASSERT_TRUE(CredState::noticeDue(log, CredState::NOTICE_BAD, T0));
+    log.last[CredState::NOTICE_BAD] = T0;
+    TEST_ASSERT_FALSE(CredState::noticeDue(log, CredState::NOTICE_BAD, T0 + 11 * 3600));
+    TEST_ASSERT_TRUE (CredState::noticeDue(log, CredState::NOTICE_BAD, T0 + 12 * 3600));
+    TEST_ASSERT_TRUE (CredState::noticeDue(log, CredState::NOTICE_EXPIRING, T0));
+}
+
+// ── Reset credits ───────────────────────────────────────────────────────────
+
+void test_claude_grants_found_under_any_key() {
+    const char* json = R"({
+      "five_hour": {"utilization": 10},
+      "seven_day": {"utilization": 20},
+      "cedar_thing": {"grants": [
+        {"resets_left": 1, "ends_at": "2026-10-20T00:00:00Z", "usable_now": false, "clears": ["seven_day"]},
+        {"resets_left": 2, "ends_at": "2026-10-25T00:00:00Z", "usable_now": true,  "clears": ["five_hour", "seven_day"]}
+      ]},
+      "other": {"utilization": 5}
+    })";
+    ClaudeData d;
+    TEST_ASSERT_TRUE(parseFiltered(json, d, UsageParse::claudeFilter, UsageParse::claude));
+    TEST_ASSERT_EQUAL_UINT8(2, d.resets.left);          // usable beats sooner-but-locked
+    TEST_ASSERT_TRUE(d.resets.usable);
+    TEST_ASSERT_EQUAL(TimeUtil::epochUtc(2026, 10, 25, 0, 0, 0), d.resets.endsAt);
+    TEST_ASSERT_EQUAL_STRING("session + weekly", d.resets.title);
+}
+
+void test_claude_without_grants_has_no_resets() {
+    ClaudeData d;
+    TEST_ASSERT_TRUE(parseFiltered(R"({"five_hour":{"utilization":1},"x":{"grants":[]}})", d,
+                                   UsageParse::claudeFilter, UsageParse::claude));
+    TEST_ASSERT_EQUAL_UINT8(0, d.resets.left);
+}
+
+void test_codex_reset_credits() {
+    const char* json = R"({"available_count": 2, "credits": [
+        {"status": "used",      "expires_at": "2026-10-09T00:00:00Z", "title": "old"},
+        {"status": "available", "expires_at": "2026-10-30T00:00:00Z", "title": "later"},
+        {"status": "available", "expires_at": "2026-10-12T00:00:00Z", "title": "Weekly reset"}
+    ]})";
+    ResetGrant g;
+    TEST_ASSERT_TRUE(parseFiltered(json, g, UsageParse::codexResetsFilter, UsageParse::codexResets));
+    TEST_ASSERT_EQUAL_UINT8(2, g.left);
+    TEST_ASSERT_EQUAL(TimeUtil::epochUtc(2026, 10, 12, 0, 0, 0), g.endsAt);
+    TEST_ASSERT_EQUAL_STRING("Weekly reset", g.title);
+
+    TEST_ASSERT_TRUE(parseFiltered(R"({"available_count": 0, "credits": []})", g,
+                                   UsageParse::codexResetsFilter, UsageParse::codexResets));
+    TEST_ASSERT_EQUAL_UINT8(0, g.left);
+}
+
 // ── Night ───────────────────────────────────────────────────────────────────
 
 void test_night_window_wraps_and_disables() {
@@ -263,6 +371,14 @@ int main(int, char**) {
     RUN_TEST(test_pace_lasts_until_reset);
     RUN_TEST(test_pace_stops_at_window_reset_and_needs_span);
     RUN_TEST(test_trend_sums_drops_and_skips_resets);
+    RUN_TEST(test_markup_403_blocks_but_never_latches_auth);
+    RUN_TEST(test_jwt_exp_decode);
+    RUN_TEST(test_cred_derivation_order);
+    RUN_TEST(test_cred_meta_labels);
+    RUN_TEST(test_notice_rate_limit);
+    RUN_TEST(test_claude_grants_found_under_any_key);
+    RUN_TEST(test_claude_without_grants_has_no_resets);
+    RUN_TEST(test_codex_reset_credits);
     RUN_TEST(test_night_window_wraps_and_disables);
     RUN_TEST(test_night_brightness);
     return UNITY_END();

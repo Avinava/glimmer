@@ -3,6 +3,16 @@
 // channels. Pure (no Arduino) so the parsers can be host-tested.
 #include <stdint.h>
 #include <time.h>
+#include "cred_state.h"
+
+// A limit-reset credit: lets the user reset a rate-limit window early.
+// left == 0 → none on the account.
+struct ResetGrant {
+    uint8_t left   = 0;
+    time_t  endsAt = 0;        // credit expiry (use it before this), 0 = unknown
+    bool    usable = false;    // can be spent right now
+    char    title[24] = "";    // e.g. "weekly" / "Fable · weekly"
+};
 
 struct ModelSlot {
     float pct = -1.0f;                 // % remaining, -1 = absent
@@ -15,10 +25,11 @@ struct ClaudeData {
     time_t    sessionReset = 0;
     time_t    weeklyReset  = 0;
     ModelSlot models[3];               // per-model weekly windows (+ paid overage)
-    bool      valid   = false;
-    bool      authErr = false;         // err[] is a latched credential failure
+    ResetGrant resets;
+    bool      valid   = false;         // we have (possibly old) data to show
+    Cred      cred    = Cred::NOT_SET;
     time_t    lastOk  = 0;             // epoch of the last good fetch
-    char      err[24] = "";
+    char      err[24] = "";            // surfaced non-credential failure
 };
 
 struct CodexData {
@@ -31,14 +42,19 @@ struct CodexData {
     char   secondaryTag[16] = "";    // non-empty when the secondary row comes from
                                      // an additional model limit (e.g. "SPARK")
     float  creditsRemain  = -1.0f;
+    ResetGrant resets;
     bool   valid   = false;
-    bool   authErr = false;
+    Cred   cred    = Cred::NOT_SET;
+    time_t jwtExp  = 0;              // token expiry from its JWT, 0 = unknown
     time_t lastOk  = 0;
     char   err[24] = "";
 };
 
-// "Loading" = configured but never successfully fetched, with no error yet.
-// (Both channels are only enabled once configured, so this can't false-positive
-// on an unconfigured slot.) A recorded error takes precedence over loading.
-inline bool claudeLoading(const ClaudeData& d) { return !d.valid && !d.err[0]; }
-inline bool codexLoading (const CodexData&  d) { return !d.valid && !d.err[0]; }
+// "Loading" = configured, never fetched, and nothing to report yet (neither a
+// credential problem nor a surfaced error).
+inline bool claudeLoading(const ClaudeData& d) {
+    return !d.valid && !d.err[0] && !CredState::bad(d.cred) && d.cred != Cred::NOT_SET;
+}
+inline bool codexLoading(const CodexData& d) {
+    return !d.valid && !d.err[0] && !CredState::bad(d.cred) && d.cred != Cred::NOT_SET;
+}

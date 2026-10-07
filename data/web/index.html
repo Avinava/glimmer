@@ -145,6 +145,7 @@
   <section x-show="page==='tokens'">
     <article>
       <h2>Claude</h2>
+      <div class="cred-chip" x-bind:class="credChip('claude').cls" x-text="credChip('claude').text"></div>
       <label>Session key</label>
       <div class="input-toggle" x-data="{show:false}">
         <input x-bind:type="show ? 'text' : 'password'" x-model="settings.claudeKey" placeholder="sk-ant-sid02-...">
@@ -154,6 +155,7 @@
     </article>
     <article>
       <h2>Codex</h2>
+      <div class="cred-chip" x-bind:class="credChip('codex').cls" x-text="credChip('codex').text"></div>
       <label>Bearer token</label>
       <div class="input-toggle" x-data="{show:false}">
         <input x-bind:type="show ? 'text' : 'password'" x-model="settings.codexToken" placeholder="eyJ...">
@@ -363,7 +365,7 @@ function app() {
     weatherCity: '',
     cityResults: [],
     switchTo: 'Home',
-    channelNames: ['Home', 'Claude', 'Codex', 'AI', 'Trend', 'Weather', 'Forecast', 'Clock', 'Info'],
+    channelNames: ['Home', 'Claude', 'Codex', 'AI', 'Trend', 'Weather', 'Forecast', 'Clock', 'Info', 'Setup'],
 
     // The device masks the API token as "***" on read. The real value is kept
     // in this browser (saved when the user types it) for authenticated calls.
@@ -467,14 +469,38 @@ function app() {
       if (s < 5400) return Math.round(s / 60) + 'm ago';
       return Math.round(s / 3600) + 'h ago';
     },
+    // Plain-language credential status for the Tokens tab.
+    credChip(name) {
+      const s = (this.state.sources || {})[name] || {};
+      const exp = s.expires_at ? new Date(s.expires_at * 1000) : null;
+      const day = exp ? exp.toLocaleDateString(undefined, {day: 'numeric', month: 'short'}) : '';
+      const inDays = exp ? Math.max(0, Math.round((exp - Date.now()) / 86400000)) : 0;
+      const resets = s.resets ? ` · ${s.resets.left} reset credit${s.resets.left > 1 ? 's' : ''}` : '';
+      switch (s.cred) {
+        case 'not_set':  return {cls: 'muted', text: 'Not set'};
+        case 'checking': return {cls: 'muted', text: 'Checking…'};
+        case 'ok':       return {cls: 'mint',  text: 'Working' + (day ? ` · expires ${day}` : '') + resets};
+        case 'expiring': return {cls: 'amber', text: `Expires ${day} (in ${inDays}d) — paste a fresh one soon` + resets};
+        case 'expired':  return {cls: 'coral', text: `Expired ${day} — paste a new one below`};
+        case 'rejected': return {cls: 'coral', text: `Rejected (HTTP ${s.code}) — paste a new one below`};
+        case 'blocked':  return {cls: 'amber', text: 'Blocked by a Cloudflare challenge — the key itself is fine; retrying every 15 min'};
+        default:         return {cls: 'muted', text: ''};
+      }
+    },
     sourceText(s) {
-      if (s.auth_bad) return 'token rejected (' + s.code + ')';
+      if (s.cred && !['ok', 'checking', 'not_set'].includes(s.cred)) return this.credChipText(s);
       let t = s.valid ? 'ok · ' + this.ago(s.last_ok) : (s.err || 'waiting');
+      if (s.resets) t += ' · ' + s.resets.left + ' reset' + (s.resets.left > 1 ? 's' : '');
       if (s.fails) t += ' · ' + s.fails + ' fail' + (s.fails > 1 ? 's' : '') + ', retry ' + s.backoff_s + 's';
       return t;
     },
+    credChipText(s) {
+      return {expiring: 'token expiring', expired: 'token expired', rejected: 'token rejected (' + s.code + ')',
+              blocked: 'blocked by Cloudflare'}[s.cred] || s.cred;
+    },
     sourceClass(s) {
-      if (s.auth_bad) return 'coral';
+      if (s.cred === 'expired' || s.cred === 'rejected' || s.auth_bad) return 'coral';
+      if (s.cred === 'blocked' || s.cred === 'expiring') return 'amber';
       if (s.fails) return 'amber';
       return s.valid ? 'mint' : 'muted';
     },

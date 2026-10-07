@@ -84,7 +84,7 @@ static bool fail(int code, const char* err) {
     FetchPolicy::onFailure(s_pol, code, -1);
     // Keep showing the last good snapshot (it goes stale on its own clock);
     // only a never-loaded snapshot surfaces the error text.
-    if (!s_w.valid) snprintf(s_w.err, sizeof(s_w.err), "%s", err);
+    if (!s_w.valid) snprintf_P(s_w.err, sizeof(s_w.err), PSTR("%s"), err);
     Serial.printf_P(PSTR("[weather] fail (%s) streak=%u wait=%us\n"), err, s_pol.fails,
                   (unsigned)s_pol.waitS);
     return false;
@@ -94,14 +94,13 @@ bool fetch(const Settings& s) {
     if (!configured(s)) return false;
 
     char url[320];
-    snprintf(url, sizeof(url),
-        "http://api.open-meteo.com/v1/forecast"
+    snprintf_P(url, sizeof(url), PSTR("http://api.open-meteo.com/v1/forecast"
         "?latitude=%.4f&longitude=%.4f"
         "&current=temperature_2m,apparent_temperature,weather_code,relative_humidity_2m,"
         "wind_speed_10m,is_day"
         "&hourly=precipitation_probability&forecast_hours=12"
         "&daily=temperature_2m_min,temperature_2m_max,weather_code,sunrise,sunset,uv_index_max"
-        "&forecast_days=3&timezone=auto&timeformat=unixtime",
+        "&forecast_days=3&timezone=auto&timeformat=unixtime"),
         s.weatherLat, s.weatherLon);
 
     WiFiClient client;
@@ -112,7 +111,7 @@ bool fetch(const Settings& s) {
     int code = http.GET();
     if (code != HTTP_CODE_OK) {
         http.end();
-        char e[24]; snprintf(e, sizeof(e), "HTTP %d", code);
+        char e[24]; snprintf_P(e, sizeof(e), PSTR("HTTP %d"), code);
         return fail(code, e);
     }
 
@@ -120,7 +119,7 @@ bool fetch(const Settings& s) {
     auto err = deserializeJson(doc, http.getStream());
     http.end();
     if (err) {
-        char e[24]; snprintf(e, sizeof(e), "JSON %s", err.c_str());
+        char e[24]; snprintf_P(e, sizeof(e), PSTR("JSON %s"), err.c_str());
         return fail(0, e);
     }
 
@@ -175,11 +174,11 @@ void rainHint(const Settings& s, char* buf, size_t n) {
     if (best < 0 || bestPct < 40) return;
     time_t at = s_w.rainStart + best * 3600L;
     struct tm tm; localtime_r(&at, &tm);
-    if (at <= now)            snprintf(buf, n, "RAIN %d%% NOW", bestPct);
-    else if (s.clock24h)      snprintf(buf, n, "RAIN %d%% %02d:00", bestPct, tm.tm_hour);
+    if (at <= now)            snprintf_P(buf, n, PSTR("RAIN %d%% NOW"), bestPct);
+    else if (s.clock24h)      snprintf_P(buf, n, PSTR("RAIN %d%% %02d:00"), bestPct, tm.tm_hour);
     else {
         int h12 = tm.tm_hour % 12; if (!h12) h12 = 12;
-        snprintf(buf, n, "RAIN %d%% %d%s", bestPct, h12, tm.tm_hour < 12 ? "AM" : "PM");
+        snprintf_P(buf, n, PSTR("RAIN %d%% %d%s"), bestPct, h12, tm.tm_hour < 12 ? "AM" : "PM");
     }
 }
 

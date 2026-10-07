@@ -108,8 +108,21 @@ static void sourceJson(JsonObject o, const FetchPolicy::State& p, bool valid, co
     o["code"]      = p.lastCode;
     o["fails"]     = p.fails;
     o["auth_bad"]  = p.authLatched;
+    o["blocked"]   = FetchPolicy::blocked(p);
     o["backoff_s"] = p.waitS;
     o["err"]       = err;
+}
+
+static void credJson(JsonObject o, Cred cred, time_t expiresAt, const ResetGrant& g) {
+    o["cred"] = CredState::name(cred);
+    if (expiresAt) o["expires_at"] = (uint32_t)expiresAt;
+    if (g.left) {
+        JsonObject r = o["resets"].to<JsonObject>();
+        r["left"]    = g.left;
+        r["usable"]  = g.usable;
+        r["ends_at"] = (uint32_t)g.endsAt;
+        r["title"]   = g.title;
+    }
 }
 
 static void handleApiState() {
@@ -145,8 +158,12 @@ static void handleApiState() {
     JsonObject src = d["sources"].to<JsonObject>();
     const ClaudeData* cl = mainClaudeData();
     const CodexData*  cx = mainCodexData();
-    sourceJson(src["claude"].to<JsonObject>(), Api::claudePolicy(), cl->valid, cl->err);
-    sourceJson(src["codex"].to<JsonObject>(),  Api::codexPolicy(),  cx->valid, cx->err);
+    JsonObject jcl = src["claude"].to<JsonObject>();
+    JsonObject jcx = src["codex"].to<JsonObject>();
+    sourceJson(jcl, Api::claudePolicy(), cl->valid, cl->err);
+    sourceJson(jcx, Api::codexPolicy(),  cx->valid, cx->err);
+    credJson(jcl, cl->cred, 0, cl->resets);
+    credJson(jcx, cx->cred, cx->jwtExp, cx->resets);
     const WeatherData& w = Weather::snapshot();
     sourceJson(src["weather"].to<JsonObject>(), Weather::policy(), w.valid, w.err);
     if (pSettings && pSettings->showStatus) {

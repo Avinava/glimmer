@@ -20,9 +20,12 @@ constexpr uint32_t kRetryAfterCapS = 6UL * 3600UL;
 constexpr uint8_t  kAuthStrikes    = 2;
 constexpr uint8_t  kSilentFails    = 3;   // failures hidden behind stale/loading UI
 
+constexpr uint32_t kBlockedWaitS = 15UL * 60UL;   // retry cadence while edge-blocked
+
 struct State {
     uint8_t  fails       = 0;       // consecutive failures (any kind)
-    uint8_t  authStrikes = 0;       // consecutive 401/403
+    uint8_t  authStrikes = 0;       // consecutive JSON 401/403
+    uint8_t  blockedStreak = 0;     // consecutive 401/403 answered with markup
     bool     authLatched = false;   // credential judged invalid
     uint32_t waitS       = 0;       // delay before the next attempt (0 = normal cadence)
     int      lastCode    = 0;       // last HTTP / HTTPClient code
@@ -57,6 +60,7 @@ inline long retryAfterSec(const char* v, time_t now) {
 inline void onSuccess(State& st, time_t now) {
     st.fails = 0;
     st.authStrikes = 0;
+    st.blockedStreak = 0;
     st.authLatched = false;
     st.waitS = 0;
     st.lastCode = 200;
@@ -65,22 +69,35 @@ inline void onSuccess(State& st, time_t now) {
 
 // code: HTTP status, or a negative HTTPClient/transport error, or 0 for a
 // parse failure on a 200. retryAfter: from retryAfterSec(), -1 when none.
-inline void onFailure(State& st, int code, long retryAfter) {
+// markup: the 401/403 body was HTML where JSON was promised — an edge
+// (Cloudflare) challenging this CLIENT, not the provider rejecting the
+// credential. It must never feed the auth latch, or a working key gets
+// reported as dead.
+inline void onFailure(State& st, int code, long retryAfter, bool markup = false) {
     st.lastCode = code;
-    if (code == 401 || code == 403) {
+    const bool authCode = (code == 401 || code == 403);
+    if (authCode && markup) {
+        if (st.blockedStreak < 255) st.blockedStreak++;
+        st.authStrikes = 0;
+    } else if (authCode) {
         if (st.authStrikes < 255) st.authStrikes++;
         if (st.authStrikes >= kAuthStrikes) st.authLatched = true;
+        st.blockedStreak = 0;
     } else {
         st.authStrikes = 0;
+        st.blockedStreak = 0;
     }
     if (st.fails < 255) st.fails++;
     st.waitS = backoffSec(st.fails);
+    if (st.blockedStreak >= kAuthStrikes && st.waitS < kBlockedWaitS) st.waitS = kBlockedWaitS;
     if (retryAfter > (long)st.waitS) st.waitS = (uint32_t)retryAfter;
 }
 
+inline bool blocked(const State& st) { return st.blockedStreak >= kAuthStrikes; }
+
 // Should the UI escalate from "keep stale / loading" to an error?
 inline bool shouldSurface(const State& st) {
-    return st.authLatched || st.fails >= kSilentFails;
+    return st.authLatched || blocked(st) || st.fails >= kSilentFails;
 }
 
 }  // namespace FetchPolicy
