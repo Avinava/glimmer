@@ -46,6 +46,12 @@ struct Settings {
     // Personalization
     String   userName;                // shown on the greeting splash + clock
 
+    // Agents (push / MCP / hooks)
+    bool     pinApprovals   = true;  // approvals/questions hold the screen until answered
+    uint16_t approvalTtlMin = 30;    // safety expiry when no clearing hook event arrives
+    bool     agentDoneCards = false; // short "DONE" card when an agent finishes
+    bool     agentNightShow = false; // at night: false = strip only, true = interrupt
+
     // Push API auth (also used for MCP)
     String   apiToken;                // bearer token for /push and /mcp
 };

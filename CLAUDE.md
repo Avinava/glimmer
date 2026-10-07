@@ -161,6 +161,23 @@ Generator: `tools/genfonts.py` (freetype-py). TTFs live in
 - Limit-reset credits: Claude `grants[]` under any top-level key (filter
   wildcard `"*"`), Codex `wham/rate-limit-reset-credits` hourly.
 
+## Attention queue (agents, push, device notices)
+
+- One queue (`src/data/attention_core.h`, 5 items) behind `/push`,
+  `/push/clear`, `GET /push`, `/hook`, MCP `push_card`/`clear_card`/
+  `list_cards`, and the device's own credential notices (`sys:*` ids).
+  Upsert by id = update in place; kind order = priority; a full queue never
+  evicts an approval/input for something less important.
+- `/hook` takes the **trimmed** event from `tools/agents/glimmer-hook.sh`,
+  never raw hook JSON (PostToolUse carries the whole tool output — far over
+  the ESP8266's RAM; bodies > 2 KB are ignored).
+- `Attention` channel = interrupt card (pinned while approvals/inputs wait,
+  if `pinApprovals`); `Agents` channel = the list. The indicator strip turns
+  amber/sky on every screen while something waits on the user.
+- Enum values are `K_*` / `SHOW_*` — `INPUT` is an Arduino macro.
+- Agent-facing contract lives in `docs/AGENTS-GLIMMER.md`; keep it in sync
+  with `attention_json.h` and the MCP tool schema in `web.cpp`.
+
 ## System screens (splash / connecting / OTA) — same discipline
 
 - `Display::drawSplash()`, `drawConnecting()`, `drawOtaProgress()` cache

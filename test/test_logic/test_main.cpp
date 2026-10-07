@@ -7,6 +7,8 @@
 #include "history_core.h"
 #include "night_core.h"
 #include "timeutil.h"
+#include "attention_core.h"
+#include "attention_json.h"
 
 void setUp() {}
 void tearDown() {}
@@ -366,6 +368,158 @@ void test_codex_reset_credits() {
     TEST_ASSERT_EQUAL_UINT8(0, g.left);
 }
 
+// ── Attention queue ─────────────────────────────────────────────────────────
+
+static Attention::Item mk(const char* id, Attention::Kind k, uint32_t expires = 0) {
+    Attention::Item it;
+    snprintf(it.id, sizeof(it.id), "%s", id);
+    it.kind = k;
+    it.expires = expires;
+    return it;
+}
+
+void test_attention_upsert_updates_in_place() {
+    Attention::Queue q;
+    bool fresh = false;
+    Attention::Item a = mk("build", Attention::K_PROGRESS);
+    a.progress = 10;
+    TEST_ASSERT_TRUE(Attention::upsert(q, a, 100, &fresh) >= 0);
+    TEST_ASSERT_TRUE(fresh);
+    a.progress = 60;
+    Attention::upsert(q, a, 200, &fresh);
+    TEST_ASSERT_FALSE(fresh);                                 // same id → no new interruption
+    TEST_ASSERT_EQUAL(1, Attention::count(q));
+    int i = Attention::find(q, "build");
+    TEST_ASSERT_EQUAL_INT8(60, q.items[i].progress);
+    TEST_ASSERT_EQUAL_UINT32(100, q.items[i].created);       // age kept across updates
+    // Escalation (progress → error) counts as fresh and restarts the age.
+    Attention::upsert(q, mk("build", Attention::K_ERROR), 300, &fresh);
+    TEST_ASSERT_TRUE(fresh);
+    TEST_ASSERT_EQUAL_UINT32(300, q.items[i].created);
+}
+
+void test_attention_order_and_eviction() {
+    Attention::Queue q;
+    Attention::upsert(q, mk("i1", Attention::K_INFO), 1);
+    Attention::upsert(q, mk("a1", Attention::K_APPROVAL), 2);
+    Attention::upsert(q, mk("s1", Attention::K_SUCCESS), 3);
+    Attention::upsert(q, mk("a0", Attention::K_APPROVAL), 4);
+    Attention::upsert(q, mk("e1", Attention::K_ERROR), 5);
+    int ord[Attention::kMax];
+    TEST_ASSERT_EQUAL(5, Attention::ordered(q, ord));
+    TEST_ASSERT_EQUAL_STRING("a1", q.items[ord[0]].id);       // oldest approval first
+    TEST_ASSERT_EQUAL_STRING("a0", q.items[ord[1]].id);
+    TEST_ASSERT_EQUAL_STRING("e1", q.items[ord[2]].id);
+    TEST_ASSERT_EQUAL_STRING("i1", q.items[ord[4]].id);
+    // Full: a warning evicts the info card.
+    TEST_ASSERT_TRUE(Attention::upsert(q, mk("w1", Attention::K_WARNING), 6) >= 0);
+    TEST_ASSERT_EQUAL(-1, Attention::find(q, "i1"));
+    // Fill with approvals; an info card can then not get in.
+    Attention::Queue full;
+    for (int k = 0; k < Attention::kMax; k++) {
+        char id[8]; snprintf(id, sizeof(id), "a%d", k);
+        Attention::upsert(full, mk(id, Attention::K_APPROVAL), 10 + k);
+    }
+    TEST_ASSERT_EQUAL(-1, Attention::upsert(full, mk("x", Attention::K_ERROR), 20));
+    TEST_ASSERT_EQUAL(Attention::kMax, Attention::countWaiting(full));
+}
+
+void test_attention_expire_and_clear() {
+    Attention::Queue q;
+    Attention::upsert(q, mk("t", Attention::K_INFO, 50), 10);
+    Attention::upsert(q, mk("forever", Attention::K_INFO, 0), 10);
+    TEST_ASSERT_EQUAL(0, Attention::expire(q, 49));
+    TEST_ASSERT_EQUAL(1, Attention::expire(q, 50));
+    TEST_ASSERT_TRUE(Attention::clear(q, "forever"));
+    TEST_ASSERT_FALSE(Attention::clear(q, "forever"));
+    TEST_ASSERT_EQUAL(0, Attention::count(q));
+}
+
+void test_attention_holds_screen() {
+    Attention::Item it = mk("x", Attention::K_INFO);
+    it.used = true; it.interruptUntil = 130;
+    TEST_ASSERT_TRUE(Attention::holdsScreen(it, 100, true));
+    TEST_ASSERT_FALSE(Attention::holdsScreen(it, 130, true));
+    it.display = Attention::SHOW_QUEUE;
+    TEST_ASSERT_FALSE(Attention::holdsScreen(it, 100, true));  // queued: listed only
+    Attention::Item ap = mk("y", Attention::K_APPROVAL);
+    ap.used = true; ap.interruptUntil = 0;
+    TEST_ASSERT_TRUE(Attention::holdsScreen(ap, 999, true));   // pinned until answered
+    TEST_ASSERT_FALSE(Attention::holdsScreen(ap, 999, false));
+}
+
+void test_attention_hook_mapping() {
+    Attention::Item it;
+    Attention::HookEvent e;
+    e.event = "Notification"; e.type = "permission_prompt";
+    e.session = "abcdef0123456789"; e.cwd = "/Users/me/src/glimmer/";
+    e.message = "Claude needs your permission to use Bash";
+    TEST_ASSERT_EQUAL(Attention::HOOK_UPSERT,
+        Attention::fromHook(Attention::AGENT_CLAUDE, e, false, 1800, 1000, it));
+    TEST_ASSERT_EQUAL(Attention::K_APPROVAL, it.kind);
+    TEST_ASSERT_EQUAL_STRING("claude:abcdef01", it.id);
+    TEST_ASSERT_EQUAL_STRING("glimmer", it.project);
+    TEST_ASSERT_EQUAL_STRING("wants to use Bash", it.body);
+    TEST_ASSERT_EQUAL_UINT32(2800, it.expires);
+
+    // Codex PermissionRequest with the command as detail.
+    Attention::HookEvent c;
+    c.event = "PermissionRequest"; c.session = "s1"; c.tool = "Bash"; c.detail = "pio run";
+    Attention::fromHook(Attention::AGENT_CODEX, c, false, 1800, 1000, it);
+    TEST_ASSERT_EQUAL(Attention::K_APPROVAL, it.kind);
+    TEST_ASSERT_EQUAL_STRING("codex:s1", it.id);
+    TEST_ASSERT_EQUAL_STRING("Bash: pio run", it.body);
+
+    Attention::HookEvent idle; idle.event = "Notification"; idle.type = "idle_prompt"; idle.session = "s1";
+    Attention::fromHook(Attention::AGENT_CLAUDE, idle, false, 1800, 1000, it);
+    TEST_ASSERT_EQUAL(Attention::K_INPUT, it.kind);
+
+    const char* clears[] = {"PostToolUse", "PostToolUseFailure", "UserPromptSubmit", "SessionEnd", "Stop"};
+    for (const char* ev : clears) {
+        Attention::HookEvent x; x.event = ev; x.session = "s1";
+        TEST_ASSERT_EQUAL(Attention::HOOK_CLEAR,
+            Attention::fromHook(Attention::AGENT_CLAUDE, x, false, 1800, 1000, it));
+        TEST_ASSERT_EQUAL_STRING("claude:s1", it.id);
+    }
+    // Stop with done cards on → a short success card replacing the session's card.
+    Attention::HookEvent stop; stop.event = "Stop"; stop.session = "s1";
+    TEST_ASSERT_EQUAL(Attention::HOOK_UPSERT,
+        Attention::fromHook(Attention::AGENT_CLAUDE, stop, true, 1800, 1000, it));
+    TEST_ASSERT_EQUAL(Attention::K_SUCCESS, it.kind);
+    TEST_ASSERT_EQUAL_UINT32(1020, it.expires);
+    // Unrelated events do nothing.
+    Attention::HookEvent pre; pre.event = "PreToolUse";
+    TEST_ASSERT_EQUAL(Attention::HOOK_NONE,
+        Attention::fromHook(Attention::AGENT_CLAUDE, pre, true, 1800, 1000, it));
+}
+
+void test_attention_json_legacy_and_new() {
+    JsonDocument d;
+    // Legacy /push body: colour → kind, duration holds the screen throughout.
+    deserializeJson(d, R"({"title":"Build #2310","value":"passed","subtitle":"main","color":"mint","duration_s":45})");
+    Attention::Item it;
+    Attention::fromJson(d.as<JsonVariantConst>(), 1000, 1800, 7, it);
+    TEST_ASSERT_EQUAL(Attention::K_SUCCESS, it.kind);
+    TEST_ASSERT_EQUAL_STRING("push:7", it.id);
+    TEST_ASSERT_EQUAL_STRING("passed", it.value);
+    TEST_ASSERT_EQUAL_STRING("main", it.body);
+    TEST_ASSERT_EQUAL_UINT32(1045, it.expires);
+    TEST_ASSERT_EQUAL_UINT32(1045, it.interruptUntil);
+
+    deserializeJson(d, R"({"id":"tests","kind":"progress","title":"TESTS","progress":64,"agent":"codex"})");
+    Attention::fromJson(d.as<JsonVariantConst>(), 1000, 1800, 8, it);
+    TEST_ASSERT_EQUAL_STRING("tests", it.id);
+    TEST_ASSERT_EQUAL(Attention::SHOW_QUEUE, it.display);     // progress defaults to queue
+    TEST_ASSERT_EQUAL_STRING("64%", it.value);
+    TEST_ASSERT_EQUAL(Attention::AGENT_CODEX, it.agent);
+    TEST_ASSERT_EQUAL_UINT32(1000 + 3600, it.expires);
+
+    deserializeJson(d, R"({"title":"BLOCKED","kind":"approval","ttl_s":0})");
+    Attention::fromJson(d.as<JsonVariantConst>(), 1000, 1800, 9, it);
+    TEST_ASSERT_EQUAL_UINT32(0, it.expires);                  // until cleared
+    TEST_ASSERT_EQUAL_UINT32(1000 + Attention::kInterruptS, it.interruptUntil);
+}
+
 // ── Night ───────────────────────────────────────────────────────────────────
 
 void test_night_window_wraps_and_disables() {
@@ -411,6 +565,12 @@ int main(int, char**) {
     RUN_TEST(test_claude_grants_found_under_any_key);
     RUN_TEST(test_claude_without_grants_has_no_resets);
     RUN_TEST(test_codex_reset_credits);
+    RUN_TEST(test_attention_upsert_updates_in_place);
+    RUN_TEST(test_attention_order_and_eviction);
+    RUN_TEST(test_attention_expire_and_clear);
+    RUN_TEST(test_attention_holds_screen);
+    RUN_TEST(test_attention_hook_mapping);
+    RUN_TEST(test_attention_json_legacy_and_new);
     RUN_TEST(test_night_window_wraps_and_disables);
     RUN_TEST(test_night_brightness);
     return UNITY_END();

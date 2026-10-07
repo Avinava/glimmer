@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "glimmer": {
+      "type": "http",
+      "url": "http://glimmer.local/mcp",
+      "headers": { "Authorization": "Bearer ${GLIMMER_TOKEN:-none}" }
+    }
+  }
+}

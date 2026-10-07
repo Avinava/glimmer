@@ -48,7 +48,7 @@
     <button x-bind:class="{active: page==='accounts'}" x-on:click="page='accounts'">Accounts</button>
     <button x-bind:class="{active: page==='screen'}"   x-on:click="page='screen'">Screen</button>
     <button x-bind:class="{active: page==='place'}"    x-on:click="page='place'">Place &amp; time</button>
-    <button x-bind:class="{active: page==='push'}"     x-on:click="page='push'">Push &amp; MCP</button>
+    <button x-bind:class="{active: page==='agents'}"   x-on:click="page='agents'; refreshCards()">Agents</button>
     <button x-bind:class="{active: page==='device'}"   x-on:click="page='device'">Device</button>
   </nav>
 
@@ -101,28 +101,6 @@
       <div class="hint" x-text="'build ' + (state.build || '—')"></div>
     </article>
 
-    <article>
-      <h2>Send a push card</h2>
-      <label>Title</label>
-      <input x-model="pushForm.title" placeholder="Build #2310">
-      <label>Value</label>
-      <input x-model="pushForm.value" placeholder="passed">
-      <label>Subtitle (optional)</label>
-      <input x-model="pushForm.subtitle" placeholder="main / 4 min ago">
-      <label>Color</label>
-      <div class="color-pick">
-        <template x-for="c in [{v:'coral',l:'coral'},{v:'amber',l:'amber'},{v:'mint',l:'mint'},{v:'sky',l:'sky'},{v:'lilac',l:'lilac'}]">
-          <button type="button" class="swatch"
-            x-bind:class="{active: pushForm.color === c.v}"
-            x-bind:style="'--sw: var(--' + c.v + ')'"
-            x-on:click="pushForm.color = c.v"
-            x-text="c.l"></button>
-        </template>
-      </div>
-      <label>Duration (seconds)</label>
-      <input type="number" x-model.number="pushForm.duration_s" min="5" max="300">
-      <button x-on:click="sendPush()" class="primary">Send</button>
-    </article>
   </section>
 
   <!-- WIFI -->
@@ -142,173 +120,278 @@
   </section>
 
   <!-- ACCOUNTS — everything about one provider in one card -->
-  <section x-show="page==='accounts'" class="split">
-    <article>
-      <h2>Claude</h2>
-      <div class="cred-chip" x-bind:class="credChip('claude').cls" x-text="credChip('claude').text"></div>
-      <label>Session key</label>
-      <div class="input-toggle" x-data="{show:false}">
-        <input x-bind:type="show ? 'text' : 'password'" x-model="settings.claudeKey" placeholder="sk-ant-sid02-...">
-        <button type="button" class="toggle-vis" x-on:click="show=!show" x-text="show ? 'hide' : 'show'"></button>
+  <section x-show="page==='accounts'">
+    <div class="cols">
+      <div class="col">
+        <article>
+          <h2>Claude</h2>
+          <div class="cred-chip" x-bind:class="credChip('claude').cls" x-text="credChip('claude').text"></div>
+          <label>Session key</label>
+          <div class="input-toggle" x-data="{show:false}">
+            <input x-bind:type="show ? 'text' : 'password'" x-model="settings.claudeKey" placeholder="sk-ant-sid02-...">
+            <button type="button" class="toggle-vis" x-on:click="show=!show" x-text="show ? 'hide' : 'show'"></button>
+          </div>
+          <div class="hint">claude.ai → DevTools → Application → Cookies → <code>sessionKey</code></div>
+          <div class="field-inline">
+            <span>Large number</span>
+            <select x-model="claudeHero">
+              <option value="session">5-hour window</option>
+              <option value="weekly">Weekly</option>
+            </select>
+          </div>
+        </article>
+        <article>
+          <h2>Checks</h2>
+          <div class="field-inline">
+            <span>Check usage every</span>
+            <select x-model.number="settings.refreshMin">
+              <template x-for="o in withCurrent([1, 2, 5, 10, 15, 30, 60], settings.refreshMin)" :key="o">
+                <option :value="o" x-text="o + ' min'" :selected="o === settings.refreshMin"></option>
+              </template>
+            </select>
+          </div>
+          <div class="hint">One HTTPS call per account. Weather follows, at most every 10 min.</div>
+          <label class="row"><input type="checkbox" x-model="settings.showStatus">Flag provider outages</label>
+          <div class="hint">Checks status.claude.com / status.openai.com every 15 min.</div>
+        </article>
       </div>
-      <div class="hint">claude.ai → DevTools → Application → Cookies → <code>sessionKey</code>. It has no visible expiry; the device tells you when claude.ai stops accepting it.</div>
-      <label>Large number shows</label>
-      <select x-model="claudeHero">
-        <option value="session">5-hour session window</option>
-        <option value="weekly">Weekly window</option>
-      </select>
-    </article>
-    <article>
-      <h2>Codex</h2>
-      <div class="cred-chip" x-bind:class="credChip('codex').cls" x-text="credChip('codex').text"></div>
-      <label>Bearer token</label>
-      <div class="input-toggle" x-data="{show:false}">
-        <input x-bind:type="show ? 'text' : 'password'" x-model="settings.codexToken" placeholder="eyJ...">
-        <button type="button" class="toggle-vis" x-on:click="show=!show" x-text="show ? 'hide' : 'show'"></button>
+      <div class="col">
+        <article>
+          <h2>Codex</h2>
+          <div class="cred-chip" x-bind:class="credChip('codex').cls" x-text="credChip('codex').text"></div>
+          <label>Bearer token</label>
+          <div class="input-toggle" x-data="{show:false}">
+            <input x-bind:type="show ? 'text' : 'password'" x-model="settings.codexToken" placeholder="eyJ...">
+            <button type="button" class="toggle-vis" x-on:click="show=!show" x-text="show ? 'hide' : 'show'"></button>
+          </div>
+          <div class="hint">chatgpt.com → DevTools → Network → a <code>backend-api</code> request → <code>authorization</code> (after "Bearer ").</div>
+          <label>Device ID</label>
+          <input x-model="settings.codexDeviceId" placeholder="uuid">
+          <div class="hint">Same request → <code>oai-device-id</code>.</div>
+          <div class="field-inline">
+            <span>Status-bar label</span>
+            <input class="short" x-model="settings.codexModelLabel" placeholder="GPT-5" maxlength="10">
+          </div>
+          <label class="row"><input type="checkbox" x-model="settings.codexWeeklyHero">Second window as large number</label>
+          <div class="hint">Only if Codex reports two windows again; today it has one.</div>
+        </article>
       </div>
-      <div class="hint">chatgpt.com → DevTools → Network → any <code>backend-api</code> request → <code>authorization</code> header (value after "Bearer "). The device reads its expiry and warns 3 days ahead.</div>
-      <label>Device ID</label>
-      <input x-model="settings.codexDeviceId" placeholder="uuid">
-      <div class="hint">Same request → <code>oai-device-id</code> header.</div>
-      <label>Model label</label>
-      <input x-model="settings.codexModelLabel" placeholder="GPT-5" maxlength="10">
-      <div class="hint">Shown at the right of the Codex status bar (≤ 10 characters). Leave blank to hide.</div>
-      <label class="row"><input type="checkbox" x-model="settings.codexWeeklyHero">Show the second window as the large number</label>
-      <div class="hint">Only matters if Codex reports two time windows again — today it reports one weekly window, which is always the large number.</div>
-    </article>
-    <article>
-      <h2>Both</h2>
-      <label>Check usage every</label>
-      <select x-model.number="settings.refreshMin">
-        <template x-for="o in withCurrent([1, 2, 5, 10, 15, 30, 60], settings.refreshMin)" :key="o">
-          <option :value="o" x-text="o + ' min'" :selected="o === settings.refreshMin"></option>
-        </template>
-      </select>
-      <div class="hint">Each check is one HTTPS call per account. Weather follows this too, but never more often than every 10 min.</div>
-      <label class="row"><input type="checkbox" x-model="settings.showStatus">Flag provider outages</label>
-      <div class="hint">Checks status.claude.com and status.openai.com every 15 min and shows <code>DEGRADED</code> / <code>OUTAGE</code> in the Claude and Codex status bars. Two small extra HTTPS calls.</div>
-    </article>
-    <button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button>
+    </div>
+    <div class="save-bar"><button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button></div>
   </section>
 
   <!-- SCREEN — what is shown, how it moves, how it looks, at night -->
-  <section x-show="page==='screen'" class="split">
-    <article>
-      <h2>Channels</h2>
-      <template x-for="c in channelToggles()" :key="c.key">
-        <div class="channel-row">
-          <label class="row"><input type="checkbox" x-model="settings[c.key]"><span x-text="c.label"></span></label>
-          <span class="needs" x-bind:class="c.ready ? 'ok' : 'missing'" x-text="c.needs"></span>
-        </div>
-      </template>
-      <div class="hint">In rotation order. A channel whose requirement is missing stays hidden even when ticked. Night, Setup and push cards are shown automatically.</div>
-    </article>
-    <article>
-      <h2>Rotation</h2>
-      <label class="row"><input type="checkbox" x-model="settings.autoRotate">Rotate through channels</label>
-      <label>Each channel for</label>
-      <select x-model.number="settings.channelSec" x-bind:disabled="!settings.autoRotate">
-        <template x-for="o in withCurrent([3, 5, 8, 10, 15, 20, 30, 60], settings.channelSec)" :key="o">
-          <option :value="o" x-text="o + ' sec'" :selected="o === settings.channelSec"></option>
-        </template>
-      </select>
-      <h2 style="margin-top:1em">Look</h2>
-      <label>Brightness</label>
-      <select x-model.number="settings.brightness">
-        <template x-for="o in withCurrent([10, 25, 50, 75, 80, 100], settings.brightness)" :key="o">
-          <option :value="o" x-text="o + '%' + (o === 80 ? ' (default)' : '')" :selected="o === settings.brightness"></option>
-        </template>
-      </select>
-      <label class="row"><input type="checkbox" x-model="settings.clock24h">24-hour clock</label>
-      <label class="row"><input type="checkbox" x-model="settings.invertDisplay">Invert colors (panel polarity)</label>
-      <div class="hint">Only if colors look washed out or cream on your panel. Takes effect on save.</div>
-    </article>
-    <article>
-      <h2>Night</h2>
-      <label>At night</label>
-      <select x-model.number="settings.nightMode">
-        <option value="0">Do nothing</option>
-        <option value="1">Dim, keep rotating</option>
-        <option value="2">Dim clock only</option>
-        <option value="3">Screen off</option>
-      </select>
-      <div class="hint" x-show="settings.nightMode >= 2">Rotation pauses; only red push cards interrupt (and briefly wake a dark screen). Device notices wait until morning.</div>
-      <div class="night-window" x-bind:class="{disabled: !settings.nightMode}">
-        <label>From</label>
-        <input type="time" x-bind:disabled="!settings.nightMode" x-bind:value="minToHHMM(settings.nightStartMin)"
-               x-on:change="settings.nightStartMin = hhmmToMin($event.target.value)">
-        <label>Until</label>
-        <input type="time" x-bind:disabled="!settings.nightMode" x-bind:value="minToHHMM(settings.nightEndMin)"
-               x-on:change="settings.nightEndMin = hhmmToMin($event.target.value)">
+  <section x-show="page==='screen'">
+    <div class="cols">
+      <div class="col">
+        <article>
+          <h2>Channels</h2>
+          <template x-for="c in channelToggles()" :key="c.key">
+            <div class="channel-row">
+              <label class="row"><input type="checkbox" x-model="settings[c.key]"><span x-text="c.label"></span></label>
+              <span class="needs" x-bind:class="c.ready ? 'ok' : 'missing'" x-text="c.needs"></span>
+            </div>
+          </template>
+          <div class="hint">In rotation order. Night, Setup and agent cards appear on their own.</div>
+        </article>
       </div>
-      <label>Night brightness</label>
-      <select x-model.number="settings.nightBright" x-bind:disabled="settings.nightMode !== 1 && settings.nightMode !== 2">
-        <template x-for="o in withCurrent([5, 10, 15, 30, 50], settings.nightBright)" :key="o">
-          <option :value="o" x-text="o + '%'" :selected="o === settings.nightBright"></option>
-        </template>
-      </select>
-    </article>
-    <button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button>
+      <div class="col">
+        <article>
+          <h2>Rotation &amp; look</h2>
+          <label class="row"><input type="checkbox" x-model="settings.autoRotate">Rotate through channels</label>
+          <div class="field-inline" x-bind:class="{disabled: !settings.autoRotate}">
+            <span>Each channel for</span>
+            <select x-model.number="settings.channelSec" x-bind:disabled="!settings.autoRotate">
+              <template x-for="o in withCurrent([3, 5, 8, 10, 15, 20, 30, 60], settings.channelSec)" :key="o">
+                <option :value="o" x-text="o + ' sec'" :selected="o === settings.channelSec"></option>
+              </template>
+            </select>
+          </div>
+          <div class="field-inline">
+            <span>Brightness</span>
+            <select x-model.number="settings.brightness">
+              <template x-for="o in withCurrent([10, 25, 50, 75, 80, 100], settings.brightness)" :key="o">
+                <option :value="o" x-text="o + '%'" :selected="o === settings.brightness"></option>
+              </template>
+            </select>
+          </div>
+          <label class="row"><input type="checkbox" x-model="settings.clock24h">24-hour clock</label>
+          <label class="row"><input type="checkbox" x-model="settings.invertDisplay">Invert colors</label>
+          <div class="hint">Only if colors look washed out on your panel.</div>
+        </article>
+        <article>
+          <h2>Night</h2>
+          <div class="field-inline">
+            <span>At night</span>
+            <select x-model.number="settings.nightMode">
+              <option value="0">Do nothing</option>
+              <option value="1">Dim, keep rotating</option>
+              <option value="2">Dim clock only</option>
+              <option value="3">Screen off</option>
+            </select>
+          </div>
+          <div class="pair" x-bind:class="{disabled: !settings.nightMode}">
+            <div><label>From</label>
+              <input type="time" x-bind:disabled="!settings.nightMode" x-bind:value="minToHHMM(settings.nightStartMin)"
+                     x-on:change="settings.nightStartMin = hhmmToMin($event.target.value)"></div>
+            <div><label>Until</label>
+              <input type="time" x-bind:disabled="!settings.nightMode" x-bind:value="minToHHMM(settings.nightEndMin)"
+                     x-on:change="settings.nightEndMin = hhmmToMin($event.target.value)"></div>
+          </div>
+          <div class="field-inline" x-bind:class="{disabled: settings.nightMode !== 1 && settings.nightMode !== 2}">
+            <span>Night brightness</span>
+            <select x-model.number="settings.nightBright" x-bind:disabled="settings.nightMode !== 1 && settings.nightMode !== 2">
+              <template x-for="o in withCurrent([5, 10, 15, 30, 50], settings.nightBright)" :key="o">
+                <option :value="o" x-text="o + '%'" :selected="o === settings.nightBright"></option>
+              </template>
+            </select>
+          </div>
+          <div class="hint" x-show="settings.nightMode >= 2">Rotation pauses; only red or urgent cards interrupt.</div>
+        </article>
+      </div>
+    </div>
+    <div class="save-bar"><button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button></div>
   </section>
 
   <!-- PLACE & TIME -->
-  <section x-show="page==='place'" class="split">
-    <article>
-      <h2>You</h2>
-      <label>Your name</label>
-      <input x-model="settings.userName" placeholder="Avi" maxlength="16">
-      <div class="hint">Shown on the boot greeting and the Clock channel ("good morning, Avi").</div>
-      <label>Timezone</label>
-      <select x-model.number="settings.tzMinutes">
-        <template x-for="tz in withCurrentTz(settings.tzMinutes)" :key="tz.min">
-          <option :value="tz.min" x-text="tz.label" :selected="tz.min === settings.tzMinutes"></option>
-        </template>
-      </select>
-      <div class="hint">A fixed offset (no automatic daylight-saving switch). Half-hour and 45-min zones supported.</div>
-    </article>
-    <article>
-      <h2>Weather</h2>
-      <label>City search</label>
-      <input x-model="weatherCity" placeholder="Search city..." x-on:input.debounce.500ms="searchCity()">
-      <template x-if="cityResults && cityResults.length > 0">
-        <div class="city-results">
-          <template x-for="c in cityResults" :key="c.id">
-            <button type="button" class="city-result" x-on:click="selectCity(c)" x-text="c.name + (c.admin1 ? ', ' + c.admin1 : '') + ' (' + c.country_code + ')'"></button>
+  <section x-show="page==='place'">
+    <div class="cols">
+      <div class="col">
+        <article>
+          <h2>You</h2>
+          <label>Your name</label>
+          <input x-model="settings.userName" placeholder="Avi" maxlength="16">
+          <div class="hint">On the boot greeting and the Clock channel.</div>
+          <label>Timezone</label>
+          <select x-model.number="settings.tzMinutes">
+            <template x-for="tz in withCurrentTz(settings.tzMinutes)" :key="tz.min">
+              <option :value="tz.min" x-text="tz.label" :selected="tz.min === settings.tzMinutes"></option>
+            </template>
+          </select>
+          <div class="hint">Fixed offset — no automatic daylight-saving switch.</div>
+        </article>
+      </div>
+      <div class="col">
+        <article>
+          <h2>Weather</h2>
+          <label>City search</label>
+          <input x-model="weatherCity" placeholder="Search city..." x-on:input.debounce.500ms="searchCity()">
+          <template x-if="cityResults && cityResults.length > 0">
+            <div class="city-results">
+              <template x-for="c in cityResults" :key="c.id">
+                <button type="button" class="city-result" x-on:click="selectCity(c)" x-text="c.name + (c.admin1 ? ', ' + c.admin1 : '') + ' (' + c.country_code + ')'"></button>
+              </template>
+            </div>
           </template>
-        </div>
-      </template>
-      <label>Latitude</label>
-      <input type="number" step="0.0001" x-model.number="settings.weatherLat" placeholder="22.5726">
-      <label>Longitude</label>
-      <input type="number" step="0.0001" x-model.number="settings.weatherLon" placeholder="88.3639">
-      <div class="hint" x-text="hasLocation() ? 'Weather, Forecast and the Home weather column use this location.' : 'No location set — Weather and Forecast stay hidden.'"></div>
-      <button type="button" class="secondary" x-show="hasLocation()" x-on:click="clearLocation()">Clear location</button>
-      <label class="row"><input type="checkbox" x-model="settings.useFahrenheit">Show °F (instead of °C)</label>
-    </article>
-    <button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button>
+          <div class="pair">
+            <div><label>Latitude</label><input type="number" step="0.0001" x-model.number="settings.weatherLat" placeholder="22.5726"></div>
+            <div><label>Longitude</label><input type="number" step="0.0001" x-model.number="settings.weatherLon" placeholder="88.3639"></div>
+          </div>
+          <div class="hint" x-text="hasLocation() ? 'Used by Weather, Forecast and Home.' : 'No location — Weather and Forecast stay hidden.'"></div>
+          <div class="field-inline">
+            <label class="row"><input type="checkbox" x-model="settings.useFahrenheit">Show °F</label>
+            <button type="button" class="secondary small" x-show="hasLocation()" x-on:click="clearLocation()">Clear location</button>
+          </div>
+        </article>
+      </div>
+    </div>
+    <div class="save-bar"><button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button></div>
   </section>
 
-  <!-- PUSH & MCP -->
-  <section x-show="page==='push'">
-    <article>
-      <h2>API token</h2>
-      <label>Bearer token (optional)</label>
-      <div class="input-toggle" x-data="{show:false}">
-        <input x-bind:type="show ? 'text' : 'password'" x-model="settings.apiToken" placeholder="leave blank for unauthenticated">
-        <button type="button" class="toggle-vis" x-on:click="show=!show" x-text="show ? 'hide' : 'show'"></button>
+  <!-- AGENTS — what agents show on the device, and how to connect them -->
+  <section x-show="page==='agents'">
+    <div class="cols">
+      <div class="col">
+        <article>
+          <h2>On the display now</h2>
+          <template x-if="cardsLocked">
+            <div class="hint">Enter this device's API token below (this browser remembers it) to see and dismiss cards.</div>
+          </template>
+          <template x-if="!cardsLocked && cards.length === 0">
+            <div class="hint">Nothing queued.</div>
+          </template>
+          <template x-for="c in cards" :key="c.id">
+            <div class="card-row">
+              <span class="kind" x-bind:class="'k-' + c.kind" x-text="c.kind"></span>
+              <span class="what">
+                <b x-text="c.title"></b><span x-show="c.value" x-text="' ' + c.value"></span>
+                <span class="muted" x-text="(c.body ? ' · ' + c.body : '') + ' · ' + (c.agent !== 'other' ? c.agent + ' · ' : '') + ago(Date.now() / 1000 - c.age_s)"></span>
+              </span>
+              <button type="button" class="secondary small" x-on:click="clearCard(c.id)">Dismiss</button>
+            </div>
+          </template>
+          <div class="channel-switch">
+            <button type="button" class="secondary" x-on:click="sendTestApproval()">Send test approval</button>
+            <button type="button" class="secondary" x-show="cards.length" x-on:click="clearCard(null)">Clear all</button>
+          </div>
+        </article>
+        <article>
+          <h2>Send a card</h2>
+          <label>Title</label>
+          <input x-model="pushForm.title" placeholder="TESTS PASSED" maxlength="27">
+          <label>Big value (optional)</label>
+          <input x-model="pushForm.value" placeholder="142/142" maxlength="15">
+          <label>Detail (optional)</label>
+          <input x-model="pushForm.body" placeholder="main · 4 min" maxlength="39">
+          <div class="pair">
+            <div><label>Kind</label>
+              <select x-model="pushForm.kind">
+                <template x-for="k in ['info','success','warning','error','progress','input','approval']" :key="k">
+                  <option :value="k" x-text="k" :selected="k === pushForm.kind"></option>
+                </template>
+              </select></div>
+            <div><label>Shown for</label>
+              <select x-model.number="pushForm.ttl_s">
+                <option value="30">30 sec</option>
+                <option value="120">2 min</option>
+                <option value="600">10 min</option>
+                <option value="0">until dismissed</option>
+              </select></div>
+          </div>
+          <button x-on:click="sendPush()" class="secondary">Send to display</button>
+        </article>
       </div>
-      <div class="hint">When set, <code>/push</code>, <code>/mcp</code>, <code>/api/refresh</code> and <code>/api/channel</code> require <code>Authorization: Bearer &lt;token&gt;</code>. The device never sends the token back, so this browser remembers the one you type here for its own calls.</div>
-      <button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save'"></button>
-    </article>
+      <div class="col">
+        <article>
+          <h2>Approvals</h2>
+          <label class="row"><input type="checkbox" x-model="settings.pinApprovals">Hold the screen until answered</label>
+          <div class="hint">Rotation pauses on the card while an agent waits on you. The bottom strip turns amber on every screen either way.</div>
+          <div class="field-inline">
+            <span>Give up after</span>
+            <select x-model.number="settings.approvalTtlMin">
+              <template x-for="o in withCurrent([5, 10, 15, 30, 60, 120, 240], settings.approvalTtlMin)" :key="o">
+                <option :value="o" x-text="o + ' min'" :selected="o === settings.approvalTtlMin"></option>
+              </template>
+            </select>
+          </div>
+          <label class="row"><input type="checkbox" x-model="settings.agentDoneCards">"DONE" card when an agent finishes</label>
+          <label class="row"><input type="checkbox" x-model="settings.agentNightShow">Show approvals at night too</label>
+          <div class="hint">Off: only the strip lights up at night.</div>
+        </article>
+        <article>
+          <h2>API token</h2>
+          <label>Bearer token (optional)</label>
+          <div class="input-toggle" x-data="{show:false}">
+            <input x-bind:type="show ? 'text' : 'password'" x-model="settings.apiToken" placeholder="leave blank for unauthenticated">
+            <button type="button" class="toggle-vis" x-on:click="show=!show" x-text="show ? 'hide' : 'show'"></button>
+          </div>
+          <div class="hint">Required by push, hooks and MCP when set (<code>Authorization: Bearer …</code>). This browser remembers it.</div>
+        </article>
+      </div>
+    </div>
+    <div class="save-bar inline"><button x-on:click="saveSettings(false)" class="primary" x-bind:disabled="saving" x-text="saving ? 'Saving...' : 'Save approvals & token'"></button></div>
     <article>
-      <h2>cURL</h2>
-      <pre style="background: var(--panel-2); padding: 10px; border-radius: 4px; font-size: 0.7rem; overflow-x: auto; color: var(--ink-dim);"
-x-text="curlSnippet()"></pre>
-    </article>
-    <article>
-      <h2>Claude Code MCP config</h2>
-      <pre style="background: var(--panel-2); padding: 10px; border-radius: 4px; font-size: 0.7rem; overflow-x: auto; color: var(--ink-dim);"
-x-text="mcpSnippet()"></pre>
+      <h2>Connect your agents</h2>
+      <div class="hint"><b>1. Hook script</b> — forwards approval prompts to this display (needs <code>curl</code> and <code>jq</code>):</div>
+      <pre class="snippet" x-text="installSnippet()"></pre>
+      <div class="hint"><b>2a. Claude Code</b> — merge into <code>~/.claude/settings.json</code> (all projects) or a project's <code>.claude/settings.json</code>:</div>
+      <pre class="snippet" x-text="claudeHooksSnippet()"></pre>
+      <div class="hint"><b>2b. Codex</b> — save as <code>~/.codex/hooks.json</code>; Codex asks you to trust new hooks once:</div>
+      <pre class="snippet" x-text="codexHooksSnippet()"></pre>
+      <div class="hint"><b>3. MCP</b> — lets agents push their own cards (progress, done, failed). Add to <code>.mcp.json</code>:</div>
+      <pre class="snippet" x-text="mcpSnippet()"></pre>
+      <div class="hint">Or from a script:</div>
+      <pre class="snippet" x-text="curlSnippet()"></pre>
     </article>
   </section>
 
@@ -350,7 +433,9 @@ function app() {
     page: 'status',
     state: {},
     settings: {},
-    pushForm: { title: '', value: '', subtitle: '', color: 'mint', duration_s: 30 },
+    pushForm: { title: '', value: '', body: '', kind: 'success', ttl_s: 30 },
+    cards: [],
+    cardsLocked: false,
     toast: { msg: '', error: false, _t: null },
     saving: false,
     refreshing: false,
@@ -417,7 +502,7 @@ function app() {
       await this.refreshState();
       await this.loadSettings();
       // Periodic state refresh
-      setInterval(() => this.refreshState(), 5000);
+      setInterval(() => { this.refreshState(); if (this.page === 'agents') this.refreshCards(); }, 5000);
     },
 
     async refreshState() {
@@ -457,15 +542,10 @@ function app() {
     },
 
     async sendPush() {
-      try {
-        const headers = this.authHeaders({'Content-Type': 'application/json'});
-        const r = await fetch('/push', {
-          method: 'POST', headers,
-          body: JSON.stringify(this.pushForm)
-        });
-        if (r.ok) this.showToast('Pushed to device');
-        else this.showToast('Push failed (HTTP ' + r.status + ')', true);
-      } catch (e) { this.showToast('Network error', true); }
+      const c = {...this.pushForm};
+      if (!c.value) delete c.value;
+      if (!c.body) delete c.body;
+      await this.postCard(c);
     },
 
     async triggerRefresh() {
@@ -651,7 +731,75 @@ function app() {
       const auth = tok ? `\n  -H "Authorization: Bearer ${tok}" \\` : '';
       return `curl -X POST http://${this.state.ip || 'glimmer.local'}/push \\${auth}
   -H "Content-Type: application/json" \\
-  -d '{"title":"Hello","value":"world","color":"mint","duration_s":30}'`;
+  -d '{"id":"build","kind":"success","title":"BUILD PASSED","value":"142/142","ttl_s":60}'`;
+    },
+
+    deviceUrl() { return 'http://' + (this.state.ip || 'glimmer.local'); },
+
+    installSnippet() {
+      const tok = this.snippetToken();
+      return `mkdir -p ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/Avinava/glimmer/main/tools/agents/glimmer-hook.sh \\
+  -o ~/.local/bin/glimmer-hook.sh && chmod +x ~/.local/bin/glimmer-hook.sh
+# in your shell profile:
+export GLIMMER_URL=${this.deviceUrl()}` + (tok ? `\nexport GLIMMER_TOKEN=${tok}` : '');
+    },
+
+    hookEntry(agent, matcher) {
+      const h = {type: 'command', command: '$HOME/.local/bin/glimmer-hook.sh ' + agent, async: true, timeout: 5};
+      return matcher ? {matcher, hooks: [h]} : {hooks: [h]};
+    },
+    // One line per event keeps the snippet readable.
+    hooksSnippet(agent, events) {
+      const lines = events.map(([ev, m]) =>
+        `    "${ev}": [${JSON.stringify(this.hookEntry(agent, m))}]`);
+      return '{\n  "hooks": {\n' + lines.join(',\n') + '\n  }\n}';
+    },
+    claudeHooksSnippet() {
+      return this.hooksSnippet('claude', [
+        ['Notification', 'permission_prompt|idle_prompt|agent_needs_input'],
+        ['PostToolUse', '*'], ['PostToolUseFailure', '*'],
+        ['UserPromptSubmit'], ['Stop'], ['SessionEnd']]);
+    },
+    codexHooksSnippet() {
+      return this.hooksSnippet('codex', [
+        ['PermissionRequest'], ['PostToolUse'], ['UserPromptSubmit'], ['Stop'], ['SessionEnd']]);
+    },
+
+    // The live queue (GET /push). Needs the API token when one is set.
+    async refreshCards() {
+      if (this.settings.apiToken === '***' && !this.localToken()) { this.cardsLocked = true; return; }
+      try {
+        const t = this.localToken();
+        const r = await fetch('/push', {headers: t ? {Authorization: 'Bearer ' + t} : {}});
+        if (r.status === 401) { this.cardsLocked = true; return; }
+        if (r.ok) { this.cards = (await r.json()).cards || []; this.cardsLocked = false; }
+      } catch (e) { /* keep last list */ }
+    },
+    async clearCard(id) {
+      try {
+        const r = await fetch('/push/clear', {
+          method: 'POST', headers: this.authHeaders({'Content-Type': 'application/json'}),
+          body: JSON.stringify(id ? {id} : {all: true})
+        });
+        if (!r.ok) this.showToast('Clear failed (HTTP ' + r.status + ')', true);
+      } catch (e) { this.showToast('Network error', true); }
+      this.refreshCards();
+    },
+    async sendTestApproval() {
+      await this.postCard({id: 'test:approval', kind: 'approval', agent: 'claude', project: 'glimmer',
+                           title: 'APPROVAL NEEDED', body: 'Bash: pio run -e nodemcuv2', ttl_s: 120});
+    },
+    async postCard(card) {
+      try {
+        const r = await fetch('/push', {
+          method: 'POST', headers: this.authHeaders({'Content-Type': 'application/json'}),
+          body: JSON.stringify(card)
+        });
+        if (r.ok) this.showToast('Shown on device');
+        else this.showToast('Push failed (HTTP ' + r.status + ')', true);
+      } catch (e) { this.showToast('Network error', true); }
+      this.refreshCards();
     },
 
     mcpSnippet() {

@@ -29,6 +29,7 @@
 #include "channel.h"
 #include "night_core.h"
 #include "chrome.h"
+#include "attention.h"
 
 // ── Channel registry — declared in their own .cpp files ─────────────────────
 extern bool chClaudeEnabled(const ChannelCtx&);  extern void chClaudeDraw(const ChannelCtx&);
@@ -36,14 +37,16 @@ extern bool chCodexEnabled (const ChannelCtx&);  extern void chCodexDraw (const 
 extern bool chClockEnabled (const ChannelCtx&);  extern void chClockDraw (const ChannelCtx&);
 extern bool chInfoEnabled  (const ChannelCtx&);  extern void chInfoDraw  (const ChannelCtx&);
 extern bool chWeatherEnabled (const ChannelCtx&); extern void chWeatherDraw (const ChannelCtx&);
-extern bool chPushEnabled    (const ChannelCtx&); extern void chPushDraw    (const ChannelCtx&);
+extern bool chAttentionEnabled(const ChannelCtx&); extern void chAttentionDraw(const ChannelCtx&);
+extern bool chAgentsEnabled  (const ChannelCtx&); extern void chAgentsDraw  (const ChannelCtx&);
 extern bool chHomeEnabled    (const ChannelCtx&); extern void chHomeDraw    (const ChannelCtx&);
 extern bool chAiDashEnabled  (const ChannelCtx&); extern void chAiDashDraw  (const ChannelCtx&);
 extern bool chForecastEnabled(const ChannelCtx&); extern void chForecastDraw(const ChannelCtx&);
 extern bool chTrendEnabled   (const ChannelCtx&); extern void chTrendDraw   (const ChannelCtx&);
 extern bool chNightEnabled   (const ChannelCtx&); extern void chNightDraw   (const ChannelCtx&);
 extern bool chSetupEnabled   (const ChannelCtx&); extern void chSetupDraw   (const ChannelCtx&);
-extern void chPushTick       (const ChannelCtx&);
+extern void chAttentionTick  (const ChannelCtx&);
+extern void chAgentsTick     (const ChannelCtx&);
 extern void chClockTick      (const ChannelCtx&);
 extern void chHomeTick       (const ChannelCtx&);
 extern void chClaudeTick     (const ChannelCtx&);
@@ -57,10 +60,11 @@ extern void chNightTick      (const ChannelCtx&);
 
 static const Channel kChannels[] = {
     //  name        enabled              draw                  tick
-    { "Push",     chPushEnabled,     chPushDraw,     chPushTick     },
+    { "Attention",chAttentionEnabled,chAttentionDraw,chAttentionTick},
     { "Night",    chNightEnabled,    chNightDraw,    chNightTick    },
     { "Setup",    chSetupEnabled,    chSetupDraw,    nullptr        },
     { "Home",     chHomeEnabled,     chHomeDraw,     chHomeTick     },
+    { "Agents",   chAgentsEnabled,   chAgentsDraw,   chAgentsTick   },
     { "Claude",   chClaudeEnabled,   chClaudeDraw,   chClaudeTick   },
     { "Codex",    chCodexEnabled,    chCodexDraw,    chCodexTick    },
     { "AI",       chAiDashEnabled,   chAiDashDraw,   chAiDashTick   },
@@ -115,6 +119,10 @@ const char* mainEnabledChannelName(int idx) {
 const ClaudeData* mainClaudeData() { return &g_claude; }
 const CodexData*  mainCodexData()  { return &g_codex; }
 bool     mainNightFace()    { return g_nightFace; }
+bool     mainPinApprovals()   { return g_settings.pinApprovals; }
+bool     mainAgentNightShow() { return g_settings.agentNightShow; }
+uint32_t mainApprovalTtlS()   { return (uint32_t)g_settings.approvalTtlMin * 60UL; }
+bool     mainAgentDoneCards() { return g_settings.agentDoneCards; }
 uint32_t mainHeapRefusals() { return g_heapRefusals; }
 uint32_t mainMinMaxBlock()  { return g_minMaxBlk; }
 
@@ -138,7 +146,7 @@ static void applyBrightness() {
     ChannelCtx ctx = makeCtx();
     bool night = nightNow();
     Display::setBrightness(Night::brightness((Night::Mode)g_settings.nightMode, night,
-                                             chPushEnabled(ctx), g_settings.brightness,
+                                             chAttentionEnabled(ctx), g_settings.brightness,
                                              g_settings.nightBright));
 }
 
@@ -150,7 +158,7 @@ static void recomputeActive() {
     g_activeCount = 0;
     for (int i = 0; i < kChannelCount; i++) {
         // The night face replaces rotation: only it (and an alert card) runs.
-        if (g_nightFace && strcmp(kChannels[i].name, "Night") && strcmp(kChannels[i].name, "Push"))
+        if (g_nightFace && strcmp(kChannels[i].name, "Night") && strcmp(kChannels[i].name, "Attention"))
             continue;
         if (kChannels[i].enabled(ctx)) g_activeIdx[g_activeCount++] = i;
     }
@@ -184,14 +192,27 @@ static void refreshScreen(bool force) {
     }
 }
 
-// 2-px progress strip at y=230. Fills in current channel's theme color as
-// the slide window elapses. Hidden while a Push card or the night face is up,
-// and left empty when auto-rotate is off (nothing is counting down).
+// 2-px strip at y=230.
+//   An agent waiting on the user (approval → amber, question → sky) turns it
+//   into a solid bar on EVERY screen — including Home/Clock and the night
+//   face — so "something is waiting" is visible even when it isn't pinned.
+//   Otherwise it fills in the channel's colour as the slide window elapses
+//   (empty when auto-rotate is off; hidden on the attention card / night face).
 static void drawIndicator(uint32_t now) {
     using namespace Layout;
-    if (g_apMode || g_activeCount <= 1 || g_nightFace) return;
+    if (g_apMode || g_activeCount == 0) return;
+    const Attention::Queue& aq = AttentionQueue::get();
+    if (Attention::countWaiting(aq) > 0) {
+        uint16_t c = Attention::countKind(aq, Attention::K_APPROVAL) ? Theme::AMBER : Theme::SKY;
+        tft.fillRect(0, INDICATOR_Y, SCREEN_W, INDICATOR_H, c);
+        return;
+    }
     const char* name = kChannels[g_activeIdx[g_activePtr]].name;
-    if (!strcmp(name, "Push")) return;
+    if (g_nightFace || !strcmp(name, "Attention")) {
+        tft.fillRect(0, INDICATOR_Y, SCREEN_W, INDICATOR_H, Theme::BG);
+        return;
+    }
+    if (g_activeCount <= 1) return;
 
     int w = 0;
     if (g_settings.autoRotate) {
@@ -455,11 +476,8 @@ static void apStrandRetry(uint32_t now) {
 //
 // Short cards (12 s) for things the user should act on: a credential that
 // stopped working, a token about to expire, an unused reset credit about to
-// lapse. Rate-limited per (provider, reason); deferred, not dropped, at night
-// or while a user's push card is up.
-
-extern bool pushSystemCard(const char* title, const char* value, const char* subtitle,
-                           uint16_t color, uint32_t durationMs);
+// lapse. They go through the attention queue as `sys:*` warnings/errors.
+// Rate-limited per (provider, reason); deferred, not dropped, at night.
 
 static CredState::NoticeLog g_noticeLog[2];          // 0 = Claude, 1 = Codex
 
@@ -467,7 +485,16 @@ static bool notice(int prov, CredState::NoticeReason r, const char* title, const
                    const char* sub, uint16_t color) {
     time_t now = time(nullptr);
     if (!CredState::noticeDue(g_noticeLog[prov], r, now)) return false;
-    if (!pushSystemCard(title, value, sub, color, 12000UL)) return false;
+    Attention::Item it;
+    snprintf_P(it.id, sizeof(it.id), PSTR("sys:%d:%d"), prov, (int)r);
+    it.kind = color == Theme::CORAL ? Attention::K_ERROR : Attention::K_WARNING;
+    Attention::copyStr(it.title, sizeof(it.title), title);
+    Attention::copyStr(it.value, sizeof(it.value), value);
+    Attention::copyStr(it.body,  sizeof(it.body),  sub);
+    uint32_t an = AttentionQueue::now();
+    it.expires = an + 12;
+    it.interruptUntil = an + 12;
+    if (AttentionQueue::put(it) < 0) return false;
     g_noticeLog[prov].last[r] = now;
     Serial.printf_P(PSTR("[notice] %s %s\n"), title, value);
     return true;
@@ -596,28 +623,26 @@ void loop() {
 
     schedulerTick(now);
 
-    // If a push card is freshly active, snap to it immediately.
-    // When it expires, advance to the next channel right away.
-    static bool wasPushActive = false;
+    // Attention queue: expire once a second; a new interrupt card (or one that
+    // became more urgent) takes the screen right away; when nothing holds the
+    // screen any more, the rotation resumes immediately.
+    static uint32_t lastExpire = 0;
+    if (now - lastExpire >= 1000UL) { lastExpire = now; AttentionQueue::expire(); }
+    static bool wasAttention = false;
     ChannelCtx ctx = makeCtx();
-    bool pushActive = !g_apMode && chPushEnabled(ctx);
-    if (pushActive && !wasPushActive) {
-        recomputeActive();
-        for (int i = 0; i < g_activeCount; i++) {
-            if (strcmp(kChannels[g_activeIdx[i]].name, "Push") == 0) {
-                g_activePtr = i; break;
-            }
-        }
-        drawActive();
-        applyBrightness();                   // a dark night wakes for the card
-        g_lastSlide = now;
-    } else if (!pushActive && wasPushActive) {
+    bool attention = !g_apMode && chAttentionEnabled(ctx);
+    bool interrupt = AttentionQueue::takeInterrupt();
+    const char* curName = g_activeCount ? kChannels[g_activeIdx[g_activePtr]].name : "";
+    if (attention && (!wasAttention || (interrupt && strcmp(curName, "Attention")))) {
+        mainShowChannel("Attention");
+        applyBrightness();                   // a dark night wakes for an urgent card
+    } else if (!attention && wasAttention) {
         recomputeActive();
         drawActive();
         applyBrightness();
         g_lastSlide = now;
     }
-    wasPushActive = pushActive;
+    wasAttention = attention;
 
     // Every 10 s: night window, staleness and status badges can change what
     // should be on screen (night face in/out) or how it looks (dimmed data).
@@ -652,7 +677,9 @@ void loop() {
 
     // Channel auto-rotate — instant cut (no transition animation).
     uint32_t slideMs = (uint32_t)g_settings.channelSec * 1000UL;
-    if (!g_apMode && g_settings.autoRotate && !g_nightFace && g_activeCount > 1
+    const bool holding = attention && g_activeCount
+                      && !strcmp(kChannels[g_activeIdx[g_activePtr]].name, "Attention");
+    if (!g_apMode && g_settings.autoRotate && !g_nightFace && !holding && g_activeCount > 1
         && now - g_lastSlide >= slideMs) {
         g_lastSlide = now;
         // Pick up any settings toggles before deciding what's next.

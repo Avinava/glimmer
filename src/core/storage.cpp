@@ -67,6 +67,10 @@ Settings Storage::load() {
     s.useFahrenheit = doc["fahrenheit"]     | false;
     s.userName      = doc["user_name"]      | "";
     s.apiToken      = doc["api_token"]      | "";
+    s.pinApprovals   = doc["pin_approvals"]    | true;
+    s.approvalTtlMin = doc["approval_ttl_min"] | 30;
+    s.agentDoneCards = doc["agent_done_cards"] | false;
+    s.agentNightShow = doc["agent_night_show"] | false;
     return s;
 }
 
@@ -116,6 +120,10 @@ bool Storage::save(const Settings& s) {
     doc["fahrenheit"]   = s.useFahrenheit;
     doc["user_name"]    = s.userName;
     doc["api_token"]    = s.apiToken;
+    doc["pin_approvals"]    = s.pinApprovals;
+    doc["approval_ttl_min"] = s.approvalTtlMin;
+    doc["agent_done_cards"] = s.agentDoneCards;
+    doc["agent_night_show"] = s.agentNightShow;
     return writeAtomic([&](File& f) { return serializeJson(doc, f); });
 }
 

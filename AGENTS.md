@@ -17,6 +17,8 @@ PlatformIO project. C++ + a small Alpine.js web UI under `data/web/`.
 - `.claude/skills/` — task-specific runbooks:
   - `flash-device.md` — flash a fresh SmallTV-Ultra
   - `regenerate-fonts.md` — rebuild VLW bitmap fonts
+- `docs/AGENTS-GLIMMER.md` — how agents *use* a glimmer (cards, MCP tools,
+  hooks); `tools/agents/` — the hook script and config snippets.
 - `src/channels/channel.h` — defines the channel API and the **PARTIAL
   REDRAW DISCIPLINE**. Every channel that updates live data must follow
   this.

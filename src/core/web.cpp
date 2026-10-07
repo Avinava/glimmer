@@ -17,6 +17,8 @@
 #include "api.h"
 #include "weather.h"
 #include "vendor_status.h"
+#include "attention.h"
+#include "attention_json.h"
 #include <ESP8266HTTPUpdateServer.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
@@ -27,9 +29,8 @@ static ESP8266HTTPUpdateServer updater;
 static Settings*               pSettings = nullptr;
 
 // Defined in src/channels/ch_push.cpp
-extern void pushCardSet(const char* title, const char* value, const char* subtitle,
-                        uint16_t color, uint32_t durationMs);
-extern void pushCardClear();
+extern uint32_t mainApprovalTtlS();
+extern bool     mainAgentDoneCards();
 
 // Defined in src/main.cpp
 extern const char* mainActiveChannelName();
@@ -48,16 +49,6 @@ extern void        mainNextChannel();
 extern void        mainSettingsChanged();
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-static uint16_t parseColor(const String& s) {
-    String c = s; c.toLowerCase();
-    if (c == "red"    || c == "coral" || c == "alert")  return 0xFA89;
-    if (c == "amber"  || c == "warn")                   return 0xFE88;
-    if (c == "green"  || c == "mint" || c == "ok")      return 0x8F2E;
-    if (c == "blue"   || c == "sky"  || c == "info")    return 0x55BF;
-    if (c == "lilac"  || c == "codex")                  return 0xC43F;
-    return 0xFA89;
-}
 
 static bool checkAuth() {
     if (!pSettings || pSettings->apiToken.isEmpty()) return true;
@@ -219,6 +210,10 @@ static void handleApiGetSettings() {
     d["weatherLon"]    = s.weatherLon;
     d["useFahrenheit"] = s.useFahrenheit;
     d["userName"]      = s.userName;
+    d["pinApprovals"]   = s.pinApprovals;
+    d["approvalTtlMin"] = s.approvalTtlMin;
+    d["agentDoneCards"] = s.agentDoneCards;
+    d["agentNightShow"] = s.agentNightShow;
     String out; serializeJson(d, out);
     server.send(200, "application/json", out);
 }
@@ -281,6 +276,10 @@ static void applyIfPresent(Settings& s, JsonDocument& d) {
     applyU8 ("nightMode",   s.nightMode,   0, 3);
     applyU16("nightStartMin", s.nightStartMin, 0, 1439);
     applyU16("nightEndMin",   s.nightEndMin,   0, 1439);
+    applyU16("approvalTtlMin", s.approvalTtlMin, 5, 240);
+    applyBool("pinApprovals",   s.pinApprovals);
+    applyBool("agentDoneCards", s.agentDoneCards);
+    applyBool("agentNightShow", s.agentNightShow);
     applyU8 ("nightBright", s.nightBright, 1, 100);
     applyBool("showClaude",   s.showClaude);
     applyBool("showCodex",    s.showCodex);
@@ -361,6 +360,21 @@ static void handleReboot() {
 
 // ── /push and /mcp (unchanged contract) ─────────────────────────────────────
 
+// Build an attention item from a /push body or MCP push_card arguments and
+// queue it. Returns the item id written into idOut (for the reply).
+static int pushFrom(JsonVariantConst d, char* idOut, size_t n) {
+    static uint32_t s_seq = 0;
+    Attention::Item it;
+    Attention::fromJson(d, AttentionQueue::now(), mainApprovalTtlS(), ++s_seq, it);
+    snprintf(idOut, n, "%s", it.id);
+    return AttentionQueue::put(it);
+}
+
+static void sendJson(int code, JsonDocument& d) {
+    String out; serializeJson(d, out);
+    server.send(code, "application/json", out);
+}
+
 static void handlePush() {
     if (!checkAuth()) { server.send(401, "application/json", "{\"error\":\"unauthorized\"}"); return; }
     JsonDocument doc;
@@ -368,14 +382,70 @@ static void handlePush() {
         server.send(400, "application/json", "{\"error\":\"bad json\"}");
         return;
     }
-    const char* title = doc["title"]    | "";
-    const char* value = doc["value"]    | "";
-    const char* sub   = doc["subtitle"] | "";
-    String      col   = doc["color"]    | "coral";
-    uint32_t    durS  = (uint32_t)(doc["duration_s"] | 30);
-    if (durS > 300) durS = 300;
-    pushCardSet(title, value, sub, parseColor(col), durS * 1000UL);
-    server.send(200, "application/json", "{\"ok\":true}");
+    char id[24];
+    int slot = pushFrom(doc.as<JsonVariantConst>(), id, sizeof(id));
+    JsonDocument r;
+    r["ok"] = slot >= 0;
+    r["id"] = id;
+    if (slot < 0) r["error"] = "queue full of more important cards";
+    sendJson(slot >= 0 ? 200 : 409, r);
+}
+
+// GET /push — the active queue, most important first.
+static void handlePushList() {
+    if (!checkAuth()) { server.send(401, "application/json", "{\"error\":\"unauthorized\"}"); return; }
+    JsonDocument r;
+    JsonArray a = r["cards"].to<JsonArray>();
+    const Attention::Queue& q = AttentionQueue::get();
+    int ord[Attention::kMax], n = Attention::ordered(q, ord);
+    uint32_t now = AttentionQueue::now();
+    for (int i = 0; i < n; i++) Attention::toJson(q.items[ord[i]], now, a.add<JsonObject>());
+    sendJson(200, r);
+}
+
+// POST /push/clear — {"id": "..."} | {"all": true}
+static void handlePushClear() {
+    if (!checkAuth()) { server.send(401, "application/json", "{\"error\":\"unauthorized\"}"); return; }
+    JsonDocument d;
+    if (deserializeJson(d, server.arg("plain"))) {
+        server.send(400, "application/json", "{\"error\":\"bad json\"}");
+        return;
+    }
+    JsonDocument r;
+    if (d["all"] | false) r["cleared"] = AttentionQueue::clearAll();
+    else                  r["cleared"] = AttentionQueue::clear(d["id"] | "") ? 1 : 0;
+    sendJson(200, r);
+}
+
+// POST /hook?agent=claude|codex — a TRIMMED agent hook event, sent by
+// tools/agents/glimmer-hook.sh: {event, type, session, cwd, tool, detail,
+// message}. Never post raw hook JSON here — a PostToolUse event carries the
+// whole tool output, far beyond this device's RAM. Always answers 200 {} so
+// a hook can never block or decide anything.
+static void handleHook() {
+    if (!checkAuth()) { server.send(401, "application/json", "{\"error\":\"unauthorized\"}"); return; }
+    JsonDocument d;
+    if (server.arg("plain").length() > 2048 || deserializeJson(d, server.arg("plain"))) {
+        server.send(200, "application/json", "{}");
+        return;
+    }
+    Attention::HookEvent e;
+    e.event   = d["event"]   | "";
+    e.type    = d["type"]    | "";
+    e.session = d["session"] | "";
+    e.cwd     = d["cwd"]     | "";
+    e.tool    = d["tool"]    | "";
+    e.detail  = d["detail"]  | "";
+    e.message = d["message"] | "";
+    Attention::Agent agent = Attention::agentFrom(server.arg("agent").c_str());
+    Attention::Item it;
+    switch (Attention::fromHook(agent, e, mainAgentDoneCards(), mainApprovalTtlS(),
+                                AttentionQueue::now(), it)) {
+        case Attention::HOOK_UPSERT: AttentionQueue::put(it); break;
+        case Attention::HOOK_CLEAR:  AttentionQueue::clear(it.id); break;
+        default: break;
+    }
+    server.send(200, "application/json", "{}");
 }
 
 static void handleMcp() {
@@ -405,53 +475,95 @@ static void handleMcp() {
         // push_card
         JsonObject t1 = tools.add<JsonObject>();
         t1["name"] = "push_card";
-        t1["description"] = "Flash a status card on the SmallTV screen for a short time";
+        t1["description"] = F(
+            "Show a card on the user's glimmer desk display. Use kind=approval when you are "
+            "blocked waiting for the user to approve something, kind=input when you need an "
+            "answer, progress for long work (re-send the same id to update it), success/error "
+            "when a task finishes. Keep it short; never include secrets or file contents.");
         JsonObject s1 = t1["inputSchema"].to<JsonObject>();
         s1["type"] = "object";
         JsonObject p1 = s1["properties"].to<JsonObject>();
-        p1["title"]["type"] = "string";    p1["title"]["description"]    = "Card headline";
-        p1["value"]["type"] = "string";    p1["value"]["description"]    = "Large hero value";
-        p1["subtitle"]["type"] = "string"; p1["subtitle"]["description"] = "Footer text";
-        p1["color"]["type"] = "string";    p1["color"]["description"]    = "coral, amber, mint, sky, or lilac";
-        p1["duration_s"]["type"] = "integer"; p1["duration_s"]["description"] = "Display time in seconds (max 300)";
-        JsonArray r1 = s1["required"].to<JsonArray>();
-        r1.add("title"); r1.add("value");
+        auto prop = [&](const char* k, const char* type, const __FlashStringHelper* desc) {
+            p1[k]["type"] = type; p1[k]["description"] = desc;
+        };
+        prop("title",    "string",  F("Headline, <= 27 chars, e.g. 'TESTS PASSED'"));
+        prop("value",    "string",  F("Optional big value, <= 15 chars, e.g. '142/142'"));
+        prop("body",     "string",  F("Optional detail line, <= 39 chars"));
+        prop("kind",     "string",  F("approval | input | error | warning | success | progress | info"));
+        prop("id",       "string",  F("Stable id: re-send it to update the card in place, or to clear it"));
+        prop("agent",    "string",  F("claude | codex | other (tag on the card)"));
+        prop("project",  "string",  F("Repo / project name, <= 15 chars"));
+        prop("progress", "integer", F("0-100, draws a progress bar"));
+        prop("ttl_s",    "integer", F("Seconds until it disappears; 0 = until cleared (max 86400)"));
+        prop("display",  "string",  F("interrupt (default: takes the screen briefly) | queue (only listed)"));
+        prop("urgent",   "boolean", F("May wake a dark screen at night. Use sparingly."));
+        s1["required"].to<JsonArray>().add("title");
+
+        // clear_card
+        JsonObject tc = tools.add<JsonObject>();
+        tc["name"] = "clear_card";
+        tc["description"] = F("Remove a card you pushed (by id), or all cards with all=true.");
+        JsonObject sc = tc["inputSchema"].to<JsonObject>();
+        sc["type"] = "object";
+        sc["properties"]["id"]["type"]  = "string";
+        sc["properties"]["all"]["type"] = "boolean";
+
+        // list_cards
+        JsonObject tl = tools.add<JsonObject>();
+        tl["name"] = "list_cards";
+        tl["description"] = F("List the cards currently on the display, most important first.");
+        tl["inputSchema"]["type"] = "object";
 
         // get_state
         JsonObject t2 = tools.add<JsonObject>();
         t2["name"] = "get_state";
-        t2["description"] = "Return the device's current state (active channel, usage, uptime, heap, wifi)";
+        t2["description"] = F("Return the device's current state (active channel, usage, uptime, heap, wifi)");
         t2["inputSchema"]["type"] = "object";
 
         // show_channel
         JsonObject t3 = tools.add<JsonObject>();
         t3["name"] = "show_channel";
-        t3["description"] = "Switch the screen to a channel by name (see enabled_channels in get_state)";
+        t3["description"] = F("Switch the screen to a channel by name (see enabled_channels in get_state)");
         JsonObject s3 = t3["inputSchema"].to<JsonObject>();
         s3["type"] = "object";
         s3["properties"]["name"]["type"] = "string";
-        s3["properties"]["name"]["description"] = "Channel name, e.g. Claude, Codex, Weather, Trend";
+        s3["properties"]["name"]["description"] = F("Channel name, e.g. Claude, Codex, Weather, Trend");
         s3["required"].to<JsonArray>().add("name");
 
         // next_channel
         JsonObject t4 = tools.add<JsonObject>();
         t4["name"] = "next_channel";
-        t4["description"] = "Advance the screen to the next enabled channel";
+        t4["description"] = F("Advance the screen to the next enabled channel");
         t4["inputSchema"]["type"] = "object";
     }
     else if (strcmp(method, "tools/call") == 0) {
         const char* name = req["params"]["name"] | "";
         JsonObject args  = req["params"]["arguments"].as<JsonObject>();
         if (strcmp(name, "push_card") == 0) {
-            const char* t = args["title"]    | "";
-            const char* v = args["value"]    | "";
-            const char* s = args["subtitle"] | "";
-            String      c = args["color"]    | "coral";
-            uint32_t   ds = (uint32_t)(args["duration_s"] | 30);
-            if (ds > 300) ds = 300;
-            pushCardSet(t, v, s, parseColor(c), ds * 1000UL);
+            char id[24];
+            int slot = pushFrom(args, id, sizeof(id));
+            char msg[64];
+            if (slot >= 0) snprintf(msg, sizeof(msg), "Card shown (id %s)", id);
+            else           snprintf(msg, sizeof(msg), "Not shown: queue full of more important cards");
             resp["result"]["content"][0]["type"] = "text";
-            resp["result"]["content"][0]["text"] = "Card pushed";
+            resp["result"]["content"][0]["text"] = msg;
+            if (slot < 0) resp["result"]["isError"] = true;
+        } else if (strcmp(name, "clear_card") == 0) {
+            int n = (args["all"] | false) ? AttentionQueue::clearAll()
+                                          : (AttentionQueue::clear(args["id"] | "") ? 1 : 0);
+            char msg[32]; snprintf(msg, sizeof(msg), "Cleared %d", n);
+            resp["result"]["content"][0]["type"] = "text";
+            resp["result"]["content"][0]["text"] = msg;
+        } else if (strcmp(name, "list_cards") == 0) {
+            JsonDocument list;
+            JsonArray a = list.to<JsonArray>();
+            const Attention::Queue& q = AttentionQueue::get();
+            int ord[Attention::kMax], n = Attention::ordered(q, ord);
+            uint32_t now = AttentionQueue::now();
+            for (int i = 0; i < n; i++) Attention::toJson(q.items[ord[i]], now, a.add<JsonObject>());
+            String txt; serializeJson(list, txt);
+            resp["result"]["content"][0]["type"] = "text";
+            resp["result"]["content"][0]["text"] = txt;
         } else if (strcmp(name, "get_state") == 0) {
             JsonObject st = resp["result"]["content"][0]["json"].to<JsonObject>();
             st["fw"]              = FW_VERSION;
@@ -550,6 +662,9 @@ void Web::begin(Settings& settings) {
 
     // Legacy + event endpoints
     server.on("/push",               HTTP_POST, handlePush);
+    server.on("/push",               HTTP_GET,  handlePushList);
+    server.on("/push/clear",         HTTP_POST, handlePushClear);
+    server.on("/hook",               HTTP_POST, handleHook);
     server.on("/mcp",                HTTP_POST, handleMcp);
 
     // Backwards-compat status (used by some scripts)

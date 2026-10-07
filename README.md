@@ -25,7 +25,7 @@
 | **Trend** | 7-day bars of weekly allowance used per day, per provider |
 | **Info** | IP / SSID / signal / uptime / heap / max block / firmware |
 | **Night face** | Dim clock-only face for the night window (optional) |
-| **Push cards** | One-shot notification cards via `POST /push` |
+| **Agent cards** | "APPROVAL NEEDED" while Claude Code / Codex waits on you, plus progress / done / failed cards — see [glimmer for agents](#glimmer-for-agents) |
 
 All channels render via region-based partial repaints — no flickering
 between data updates. Data that has gone stale stays on screen, dimmed,
@@ -102,6 +102,46 @@ Claude will read the skill file, build the artifacts, and run the OTA
 dance with you. Don't run any of the curl commands yourself unless
 Claude asks — the order matters (filesystem flash wipes `/config.json`,
 needs the AP-rejoin step to recover).
+
+## glimmer for agents
+
+glimmer can tell you when a coding agent is **waiting on you** — the moment
+Claude Code or Codex stops at a permission prompt, the display shows
+**APPROVAL NEEDED** with the agent, project and command, holds the screen,
+and turns the bottom strip amber on every channel. When you answer in the
+terminal, the card clears itself. Agents can also push their own cards:
+long-task progress (updated in place), "tests passed", "deploy failed".
+
+The device only *shows* — you always approve in the terminal.
+
+**Set up (3 steps, also shown with your device's URL on the web UI's
+Agents tab):**
+
+1. **Hook script** — install
+   [`tools/agents/glimmer-hook.sh`](tools/agents/glimmer-hook.sh) to
+   `~/.local/bin/` (needs `curl` and `jq`) and set
+   `export GLIMMER_URL=http://glimmer.local` (plus `GLIMMER_TOKEN` if you set
+   an API token).
+2. **Wire the hooks** — merge
+   [`tools/agents/claude-settings.json`](tools/agents/claude-settings.json)
+   into `~/.claude/settings.json`, and/or save
+   [`tools/agents/codex-hooks.json`](tools/agents/codex-hooks.json) as
+   `~/.codex/hooks.json` (Codex asks you to trust new hooks once).
+3. **MCP (optional)** — add [`tools/agents/mcp.json`](tools/agents/mcp.json)
+   to your `.mcp.json` (or
+   `claude mcp add --transport http glimmer http://glimmer.local/mcp`) so
+   agents can push progress/done/failed cards themselves.
+
+Then paste the short instruction block from
+**[docs/AGENTS-GLIMMER.md](docs/AGENTS-GLIMMER.md)** into your project's
+`CLAUDE.md` / `AGENTS.md` — it tells agents when to push, how to update a
+card in place, and what never to send. The same doc has the full card/API
+reference.
+
+Display behaviour is yours to tune on the Agents tab: hold the screen for
+approvals or just light the strip, how long before an unanswered approval
+gives up, a short "DONE" card when an agent finishes, and whether approvals
+show at night.
 
 ## Hardware
 
