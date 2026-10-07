@@ -19,6 +19,10 @@ ESP8266's tiny buffers wedges curl mid-upload over the slow AP.
 
 That's it. (Prefer to build from source? See Step 3, Option B.)
 
+Already running glimmer? See
+[Updating a device that already runs glimmer](#updating-a-device-that-already-runs-glimmer)
+— it keeps your settings and never drops to the setup AP.
+
 ---
 
 ## Hardware reference
@@ -28,7 +32,7 @@ That's it. (Prefer to build from source? See Step 3, Option B.)
 | MCU | ESP8266 |
 | Flash | 4 MB |
 | Stock layout | `eagle.flash.4m3m.ld` (1 MB sketch, 3 MB LittleFS) |
-| glimmer layout | `eagle.flash.4m1m.ld` (3 MB sketch, 1 MB LittleFS) |
+| glimmer layout | `eagle.flash.4m1m.ld` (1 MB LittleFS; the rest is sketch + OTA space) |
 | Display | 240×240 ST7789V IPS TFT |
 | Display **color inversion** | **REQUIRED:** `tft.invertDisplay(true)` |
 | Display pins | MOSI=GPIO13, SCLK=GPIO14, DC=GPIO0, RST=GPIO2, CS=floating/-1 |
@@ -55,11 +59,11 @@ settings.
    the password, save. Device reboots and joins your network.
 4. Confirm the device shows its home-LAN IP on screen.
 
-> Note: the stock firmware has an information leak —
-> `GET http://192.168.4.1/config.json` returns saved Wi-Fi creds in
-> plaintext. Be aware. (glimmer fixes this — its `/api/export` is
-> standard JSON without leaking passwords in `GET` to unauth clients;
-> wifi password is masked.)
+> Note: the stock firmware serves saved Wi-Fi creds in plaintext at
+> `GET http://192.168.4.1/config.json`. glimmer's `GET /api/settings` masks
+> secrets, but its `GET /api/export` (the backup) returns the full config
+> **including** the Wi-Fi password and keys, without auth — keep the device
+> on a trusted LAN and treat backups as secrets.
 
 ---
 
@@ -98,8 +102,9 @@ curl -L -O https://github.com/Avinava/glimmer/releases/download/latest/littlefs.
 curl -L -O https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin
 ```
 
-For a pinned version instead of the rolling latest, use a `v*` tag's assets:
-`https://github.com/Avinava/glimmer/releases/download/v0.20.2/firmware.bin`.
+For a pinned version instead of the rolling latest, use a `v*` release's
+assets (when one exists):
+`https://github.com/Avinava/glimmer/releases/download/vX.Y.Z/firmware.bin`.
 
 ### Option B — build from source (for developers)
 
@@ -110,7 +115,7 @@ pio run -e nodemcuv2 -t buildfs   # builds littlefs.bin (fonts + web UI)
 ```
 
 Both artifacts land in `.pio/build/nodemcuv2/`. If PlatformIO isn't
-installed: `brew install platformio` (macOS) or `pip install platformio`.
+installed: `brew install platformio` (macOS) or `pipx install platformio`.
 
 ---
 
@@ -155,30 +160,61 @@ Steps:
 
 ---
 
-## Re-flashing (any subsequent update)
+## Updating a device that already runs glimmer
 
-Once glimmer is on the device (download the latest images first, or use
-your local `.pio/build/nodemcuv2/` build):
+Download the latest images (or build them, Option B):
 
 ```bash
-# Latest CI build (or skip if building locally):
 curl -L -O https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin
 curl -L -O https://github.com/Avinava/glimmer/releases/download/latest/littlefs.bin
-
-# Optional: back up your config first (uploadfs wipes /config.json)
-curl -s -o /tmp/glimmer-config-backup.json http://<device-ip>/api/export
-
-# Firmware-only flash (preserves config):
-curl -F "firmware=@firmware.bin" http://<device-ip>/update
-
-# Full flash (firmware + new fonts/web UI):
-curl -F "firmware=@firmware.bin"   http://<device-ip>/update
-curl -F "filesystem=@littlefs.bin" http://<device-ip>/update
-# (config wiped — restore via setup AP and POST the backup to /api/import)
 ```
 
-You can also use the web UI's "Reboot" button (Device page) instead of
-power-cycling.
+**Firmware only** — keeps all settings. Enough unless fonts or the web UI
+(`data/`) changed:
+
+```bash
+curl -F "firmware=@firmware.bin" http://<device-ip>/update
+```
+
+**Firmware + filesystem, keeping your settings (recommended).** A filesystem
+flash replaces `/config.json`. Build the filesystem image with your device's
+current config baked in, and the device reboots straight back onto your
+Wi-Fi — no setup AP. Needs a repo checkout and PlatformIO:
+
+```bash
+IP=<device-ip>; S=$(mktemp -d)                    # scratch dir — holds secrets
+curl -sf -o "$S/cfg.json" http://$IP/api/export
+jq -e '.wifi_ssid' "$S/cfg.json"                  # must be the raw config
+cp -R data "$S/fs" && cp "$S/cfg.json" "$S/fs/config.json"
+pio run -e nodemcuv2
+PLATFORMIO_DATA_DIR="$S/fs" pio run -e nodemcuv2 -t buildfs
+
+curl -F "firmware=@.pio/build/nodemcuv2/firmware.bin"   http://$IP/update
+# wait until http://$IP/api/state answers again, then:
+curl -F "filesystem=@.pio/build/nodemcuv2/littlefs.bin" http://$IP/update
+
+rm -rf "$S"                                       # delete the secrets copy
+pio run -e nodemcuv2 -t buildfs                   # rebuild the normal image
+```
+
+If the export has camelCase keys with `"***"` values, the device had no saved
+config — use the fallback below. Usage history and the weather cache are not
+kept either way; they refill on their own.
+
+**Fallback — restore through the setup AP** (prebuilt `littlefs.bin`, no
+toolchain):
+
+```bash
+curl -s -o glimmer-config-backup.json http://<device-ip>/api/export   # contains secrets
+curl -F "firmware=@firmware.bin"   http://<device-ip>/update
+curl -F "filesystem=@littlefs.bin" http://<device-ip>/update
+# device reboots into the open AP "glimmer-setup" — join it, then:
+curl -X POST -H 'Content-Type: application/json' \
+     --data-binary @glimmer-config-backup.json http://192.168.4.1/api/import
+# it reboots onto your Wi-Fi; delete the backup file
+```
+
+You can also use the web UI's "Reboot" button instead of power-cycling.
 
 ---
 

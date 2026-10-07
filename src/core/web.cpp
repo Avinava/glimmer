@@ -8,8 +8,11 @@
 //   GET  /api/export   — raw config.json
 //   POST /api/import   — replace config.json + restart
 //   POST /api/factory-reset
-//   POST /push         — ad-hoc card (existing)
-//   POST /mcp          — JSON-RPC subset (existing)
+//   POST /push         — attention card (see attention_json.h); GET lists, /push/clear removes
+//   POST /hook         — trimmed agent hook event (tools/agents/glimmer-hook.sh)
+//   POST /api/channel  — show a channel / next
+//   POST /mcp          — JSON-RPC: push_card, clear_card, list_cards, get_state, show/next_channel
+//   The API token (when set) guards /push*, /hook, /mcp, /api/refresh, /api/channel.
 //   POST /update       — OTA firmware + filesystem (ESP8266HTTPUpdateServer)
 
 #include "web.h"
@@ -28,7 +31,7 @@ static ESP8266WebServer        server(80);
 static ESP8266HTTPUpdateServer updater;
 static Settings*               pSettings = nullptr;
 
-// Defined in src/channels/ch_push.cpp
+// Defined in src/main.cpp
 extern uint32_t mainApprovalTtlS();
 extern bool     mainAgentDoneCards();
 

@@ -1,348 +1,287 @@
 ---
 name: flash-device
-description: Use this skill to flash a GeekMagic SmallTV-Ultra device with glimmer firmware. Walks the user end-to-end including detecting device state (brand-new stock vs already-glimmer), guiding through Wi-Fi AP handoff, verifying connectivity at every step, building, OTA-flashing firmware and filesystem, and restoring config after a full flash. Trigger phrases — "flash my SmallTV", "flash glimmer", "install glimmer", "set up glimmer device", "reflash glimmer".
+description: Use this skill to flash a GeekMagic SmallTV-Ultra device with glimmer firmware. Walks the user end-to-end including detecting device state (brand-new stock vs already-glimmer), guiding through Wi-Fi AP handoff, verifying connectivity at every step, downloading or building images, OTA-flashing firmware and filesystem, and keeping the device's config across a filesystem flash. Trigger phrases — "flash my SmallTV", "flash glimmer", "install glimmer", "set up glimmer device", "reflash glimmer", "update glimmer".
 ---
 
 # Flash a glimmer device — interactive walkthrough
 
 You are walking a user through flashing glimmer onto their GeekMagic
 SmallTV-Ultra. **Be conversational and verify each step before moving
-on.** Many steps require the user to physically do something
-(plug in the device, join a Wi-Fi AP) — wait for confirmation, don't
-proceed blindly.
+on.** Many steps need the user to physically do something (plug in the
+device, join a Wi-Fi AP) — wait for confirmation, don't proceed blindly.
+
+Facts this relies on:
+
+- OTA endpoint: `POST http://<ip>/update`, form field exactly `firmware` or
+  `filesystem`. A firmware flash keeps the filesystem; a filesystem flash
+  replaces everything on it (`/config.json`, usage history, fonts, web UI).
+- Prebuilt images (rolling `latest` release, rebuilt on every push to `main`):
+  `https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin`
+  and `.../latest/littlefs.bin`. Pinned versions: `.../download/vX.Y.Z/…`.
+- `GET /api/state` → `fw`, `wifi` (`connected`/`ap`), `ip`,
+  `claude_configured`, `codex_configured`, `weather_configured`, `heap`, …
+- `GET /api/export` → the raw `/config.json` **including secrets** (Wi-Fi
+  password, keys). Keep exports in a scratch dir and delete them afterwards.
 
 ## Phase 0 — orient
 
-Start by asking the user:
+Ask the user:
 
-1. **Is the device brand-new (running stock GeekMagic firmware), or
-   already running glimmer?** If they're not sure, ask them to plug it
-   in. Brand-new shows the stock weather-clock UI. Already-glimmer shows
-   the GLIMMER splash with amber spark logo on boot.
+1. **Brand-new (stock GeekMagic firmware) or already running glimmer?**
+   Stock shows the GeekMagic weather-clock UI; glimmer shows the GLIMMER
+   splash on boot.
+2. **Are they next to the device?** Joining an AP needs physical proximity.
+3. **Which OS is their laptop?** (macOS / Linux / Windows.)
 
-2. **Are they in the same physical location as the device?** Some steps
-   (joining its setup Wi-Fi AP) require physical proximity. Yes/no
-   shapes the steps below.
-
-3. **Which OS is their laptop?** (macOS / Linux / Windows). Network
-   tools differ.
-
-Branch based on answers:
-- **Brand-new device** → Phase A (stock → home-Wi-Fi → first OTA).
-- **Already running glimmer** → Phase B (OTA update only).
-- **Already running glimmer but lost Wi-Fi** → Phase C (factory-reset
-  recovery via setup AP).
+Branch:
+- **Brand-new device** → Phase A.
+- **Already running glimmer** → Phase B.
+- **Glimmer, but stuck on `glimmer-setup` / new router** → Phase C.
 
 ## Phase A — brand-new device (stock firmware)
 
+Do the first flash over the **home LAN**, not over the stock `GIFTV` AP: TCP
+backpressure on the slow AP wedges curl mid-upload.
+
 ### A.1 Prerequisites
 
-Run these checks and report results to the user:
-
 ```bash
-pio --version       # PlatformIO CLI — install if missing
-gh --version        # for repo work, optional
 curl --version | head -1
+pio --version     # only needed to build from source
 ```
 
-If `pio` is missing, instruct user to install it:
-- macOS: `brew install platformio`
-- Linux/Windows: `pip install platformio`
+Downloads need only `curl`. If the user wants to build from source and `pio`
+is missing: macOS `brew install platformio`, otherwise `pipx install platformio`.
 
-### A.2 Get the device on the user's home Wi-Fi (stock firmware)
+### A.2 Get the stock firmware onto home Wi-Fi
 
 **Stop and instruct the user:**
 
-> Power on the device. If it's been used before and you don't know if
-> it remembers a Wi-Fi network, factory-reset by power-cycling 3 times
-> (plug in, see the progress bar, unplug, repeat). On the third power-on
-> it boots into AP mode.
+> Power on the device. If it may remember an old network, factory-reset it
+> by power-cycling 3 times (plug in, see the progress bar, unplug, repeat);
+> on the third power-on it boots into AP mode.
 >
-> **Join the Wi-Fi network named `GIFTV` from your phone or laptop**
-> (open, no password). Ignore the "no internet" warning.
-> Then **let me know you're connected**.
+> **Join the Wi-Fi network `GIFTV`** (open). Ignore "no internet".
+> Tell me when you're connected.
 
-Wait for confirmation. Then verify:
+Verify:
 
 ```bash
-# Should respond with stock firmware HTML (or at least a connection):
 curl -s --max-time 5 -o /dev/null -w "%{http_code}\n" http://192.168.4.1/
 ```
 
-If it returns `200` or `301`, great. If timeout, ask user to confirm
-they're on `GIFTV` (not their home Wi-Fi).
+`200`/`301` = good. Timeout → they're probably not on `GIFTV`.
 
 ### A.3 Configure stock firmware to join home Wi-Fi
 
-**Instruct the user:**
-
-> Open `http://192.168.4.1/` in a browser. Click **Scan**, pick your
-> home Wi-Fi (2.4 GHz only — stock can't see 5 GHz), enter the password,
-> click Save. The device will reboot.
-
-Wait for confirmation. Then ask them to switch their laptop **back to
-their home Wi-Fi**.
+> Open `http://192.168.4.1/`, click **Scan**, pick your home Wi-Fi (2.4 GHz
+> only), enter the password, Save. The device reboots. Then switch your
+> laptop back to your home Wi-Fi.
 
 ### A.4 Find the device on the LAN
 
-The device's home-LAN IP needs to be discovered. Run, depending on OS:
+The stock firmware shows its IP in small text at the bottom of the screen —
+ask the user first. Otherwise:
 
 ```bash
-# macOS — refresh ARP cache, look for Espressif OUI
+# macOS — refresh ARP cache, look for Espressif OUIs
 for i in $(seq 1 254); do ping -c 1 -W 100 -t 1 192.168.<subnet>.$i &>/dev/null & done; wait
 arp -an | grep -iE "78:21:84|24:6f:28|30:ae:a4|94:b9:7e|cc:50:e3"
-
 # Linux
-arp -a | grep -iE "espressif|78:21:84|24:6f:28"
-# or
-nmap -sn 192.168.<subnet>.0/24
+arp -a | grep -iE "espressif|78:21:84|24:6f:28"   # or: nmap -sn 192.168.<subnet>.0/24
 ```
 
-Ask user for `<subnet>` if you don't know it (usually `0` or `1`).
-
-Verify the candidate IP is the SmallTV:
+Confirm it's the SmallTV (stock serves `/city.json` with a `"loc":` key):
 
 ```bash
-# Stock SmallTV serves /city.json
 curl -s --max-time 3 http://<ip>/city.json | head -c 100
 ```
 
-If you see JSON with a `"loc":` key, that's the device.
+### A.5 Get the images
 
-### A.5 Get the glimmer images
-
-**Default — download the prebuilt binaries (no toolchain needed).** CI
-publishes every push to `main` at the rolling `latest` release. Pull them into
-a working dir:
+**Default — prebuilt** (unless the user wants uncommitted local changes):
 
 ```bash
-cd /tmp/glimmer-flash 2>/dev/null || { mkdir -p /tmp/glimmer-flash && cd /tmp/glimmer-flash; }
+W=$(mktemp -d) && cd "$W"
 curl -L -f -o littlefs.bin https://github.com/Avinava/glimmer/releases/download/latest/littlefs.bin
 curl -L -f -o firmware.bin https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin
-ls -la firmware.bin littlefs.bin   # firmware ~600 KB, littlefs ~1 MB
+ls -la firmware.bin littlefs.bin
 ```
 
-Use this unless the user explicitly wants *uncommitted local changes* flashed.
-In the curl `/update` commands below, the binaries are then `firmware.bin` /
-`littlefs.bin` in this dir.
-
-**Fallback — build from source** (only for local/unpushed changes):
+**Fallback — build** (from the repo root; both must print `[SUCCESS]`):
 
 ```bash
-cd <repo-root>
-pio run -e nodemcuv2 -t buildfs      # outputs .pio/build/nodemcuv2/littlefs.bin
-pio run -e nodemcuv2                 # outputs .pio/build/nodemcuv2/firmware.bin
+pio run -e nodemcuv2 -t buildfs      # .pio/build/nodemcuv2/littlefs.bin
+pio run -e nodemcuv2                 # .pio/build/nodemcuv2/firmware.bin
 ```
 
-Both must print `[SUCCESS]`. If a build fails citing missing `tools/ttf/*.ttf`,
-the user needs to run the `regenerate-fonts` skill first. With this path, use
-the `.pio/build/nodemcuv2/` paths in the `/update` commands below.
+### A.6 First flash — filesystem, then firmware
 
-### A.6 First flash — filesystem then firmware
-
-**Filesystem first** — it carries the VLW fonts. Without it, the
-firmware renders fallback glyphs.
+Filesystem **first**: it carries the fonts and web UI glimmer boots into.
 
 ```bash
 DEVICE_IP=<from A.4>
-# Paths assume A.5 download dir (/tmp/glimmer-flash). For a local build,
-# substitute .pio/build/nodemcuv2/littlefs.bin etc.
-
-# 1. Filesystem
 curl -F "filesystem=@littlefs.bin" http://$DEVICE_IP/update
-# Device shows "OTA UPDATE" with a coral progress bar (well, after step 2
-# completes — stock firmware doesn't show that screen yet). Wait ~15s.
-
-# 2. Firmware
-# After the FS flash the device reboots and may drop to its setup AP
-# (because /config.json was wiped). It's no longer at $DEVICE_IP.
-# We'll flash firmware via the setup AP next.
+curl -F "firmware=@firmware.bin"   http://$DEVICE_IP/update
 ```
 
-**Tell the user**:
+If the second upload can't reach `$DEVICE_IP` (the device rebooted), tell
+the user:
 
-> The device just rebooted. It should now broadcast a Wi-Fi AP called
-> `glimmer-setup` (open). **Join `glimmer-setup` from your laptop and
-> tell me when connected.**
+> The device should now broadcast **`glimmer-setup`** (open). Join it and
+> tell me when connected.
 
-Wait for confirmation. Then verify:
-
-```bash
-curl -s --max-time 5 http://192.168.4.1/api/state
-```
-
-Should return JSON with `"fw":"0.1.0"` (or whatever the repo's version
-is) and `"wifi":"ap"`. If you see this, the FS flash worked.
+Then verify and flash firmware through the AP:
 
 ```bash
-# Now flash firmware via the setup AP
+curl -s --max-time 5 http://192.168.4.1/api/state     # "wifi":"ap"
 curl -F "firmware=@firmware.bin" http://192.168.4.1/update
 ```
 
 ### A.7 First-time setup
 
-**Instruct user:**
+> On `glimmer-setup`, open `http://192.168.4.1/` and enter your home Wi-Fi
+> (2.4 GHz) — Save & Restart. Switch back to your home Wi-Fi, then open
+> `http://glimmer.local/` (or the IP shown on screen) and add your Claude
+> `sessionKey` / Codex token, weather location and screens.
 
-> The device is still on `glimmer-setup`. Open `http://192.168.4.1/` in
-> a browser. You'll see the glimmer web UI. Walk through these tabs:
->
-> 1. **Wi-Fi** — enter your home Wi-Fi SSID + password. Click
->    "Save & Restart". The device reboots and joins your network.
-> 2. Once back on your home Wi-Fi, find the device's new IP (mDNS:
->    `http://glimmer.local/`, or repeat A.4).
-> 3. **Tokens** — paste Claude `sessionKey` cookie (from claude.ai →
->    DevTools → Application → Cookies → `sessionKey`). Optionally
->    Codex Bearer token. Save.
-> 4. **Channels** — toggle which channels rotate.
-> 5. **You** — optional name, birthday, weather lat/lon.
-
-Verify the device is back:
+Verify:
 
 ```bash
-# Mac (mDNS works):
-curl -s http://glimmer.local/api/state
-# Otherwise:
-curl -s http://<new-device-ip>/api/state
+curl -s http://glimmer.local/api/state     # "wifi":"connected", "fw":"<version>"
 ```
 
-Should return `"wifi":"connected"` and `"fw":"<version>"`. **Done with Phase A.**
+**Done with Phase A.**
 
-## Phase B — already-glimmer device, OTA update
+## Phase B — already-glimmer device (update)
 
-### B.1 Find the device
-
-Ask the user for the IP, or try mDNS:
+### B.1 Find it
 
 ```bash
 curl -s --max-time 3 http://glimmer.local/api/state
 ```
 
-Confirm `claude_configured`, `codex_configured`, `weather_configured`
-match what you expect. If the device responds, you have the IP.
+Note `fw` and the `*_configured` flags. No mDNS → ask for the IP.
 
-### B.2 Back up config (always, before any FS upload)
+### B.2 Firmware-only or firmware + filesystem?
 
-```bash
-curl -s -o /tmp/glimmer-config-backup.json http://<device-ip>/api/export
-wc -c /tmp/glimmer-config-backup.json
-# Should be a few hundred bytes to a few kB.
-```
+Firmware + filesystem is needed when anything under `data/` changed (fonts,
+web UI) between the device's `fw` and the target. If unsure, check
+`git log <device-version-commit>..HEAD -- data/` or just do B.4.
 
-### B.3 Decide: firmware-only or firmware + filesystem?
-
-**Firmware-only** is non-destructive — config stays. Suitable for code
-changes that don't touch `data/`.
-
-**Firmware + filesystem** wipes `/config.json` and reboots into setup AP.
-Required if any file under `data/` (fonts, web UI) changed. Includes the
-AP-handoff dance.
-
-Ask the user explicitly: "Did you change anything under `data/`?"
-
-### B.4 Firmware-only flash
-
-Default: flash the latest CI build. (Build locally only for unpushed changes.)
+### B.3 Firmware only (config untouched)
 
 ```bash
-cd /tmp/glimmer-flash 2>/dev/null || { mkdir -p /tmp/glimmer-flash && cd /tmp/glimmer-flash; }
+W=$(mktemp -d) && cd "$W"
 curl -L -f -o firmware.bin https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin
-curl -F "firmware=@firmware.bin" http://<device-ip>/update
-# Wait ~10 s for reboot, then:
-curl -s http://<device-ip>/api/state    # confirm new fw version
-
-# Local-build alternative:
-#   pio run -e nodemcuv2
-#   curl -F "firmware=@.pio/build/nodemcuv2/firmware.bin" http://<device-ip>/update
+curl -F "firmware=@firmware.bin" http://<ip>/update
+for i in $(seq 1 40); do curl -sf --max-time 3 http://<ip>/api/state && break; done
+# Local build instead: pio run -e nodemcuv2, then .pio/build/nodemcuv2/firmware.bin
 ```
 
-Done.
+Confirm the new `fw`. Done.
 
-### B.5 Full flash (firmware + filesystem)
+### B.4 Firmware + filesystem — preferred: bake the config in (no AP)
+
+The filesystem image is built with the device's own `config.json` inside, so
+the device reboots straight onto its Wi-Fi with every setting intact. Needs
+the repo checked out and PlatformIO (the FS image must be built locally).
 
 ```bash
-# Default: latest CI build (or build locally with pio run + -t buildfs)
-cd /tmp/glimmer-flash 2>/dev/null || { mkdir -p /tmp/glimmer-flash && cd /tmp/glimmer-flash; }
-curl -L -f -o firmware.bin https://github.com/Avinava/glimmer/releases/download/latest/firmware.bin
-curl -L -f -o littlefs.bin https://github.com/Avinava/glimmer/releases/download/latest/littlefs.bin
-
-# Firmware first
-curl -F "firmware=@firmware.bin" http://<device-ip>/update
-# Wait ~10 s
-curl -s http://<device-ip>/api/state    # confirm new fw
-
-# Filesystem (wipes config, reboots to AP)
-curl -F "filesystem=@littlefs.bin" http://<device-ip>/update
+cd <repo-root>
+IP=<device-ip>; S=$(mktemp -d)                 # scratch: will hold secrets
+curl -sf -o "$S/cfg.json" http://$IP/api/export
+jq -e '.wifi_ssid' "$S/cfg.json"
 ```
 
-**Tell the user:**
-
-> The device is rebooting into `glimmer-setup` (open AP). **Join
-> `glimmer-setup` from your laptop and confirm when connected.**
-
-Wait for confirmation. Verify:
+The export must be the raw config (snake_case keys like `wifi_ssid`,
+`claude_key`). camelCase keys with `"***"` mean the device had no saved
+config — stop and use B.5.
 
 ```bash
-curl -s http://192.168.4.1/api/state
-# Should show "wifi":"ap" and claude/codex/weather_configured all false.
+cp -R data "$S/fs" && cp "$S/cfg.json" "$S/fs/config.json"
+pio run -e nodemcuv2                                    # or download firmware.bin
+PLATFORMIO_DATA_DIR="$S/fs" pio run -e nodemcuv2 -t buildfs
+
+curl -F "firmware=@.pio/build/nodemcuv2/firmware.bin" http://$IP/update
+for i in $(seq 1 40); do curl -sf --max-time 3 http://$IP/api/state && break; done
+curl -F "filesystem=@.pio/build/nodemcuv2/littlefs.bin" http://$IP/update
+for i in $(seq 1 40); do curl -sf --max-time 3 http://$IP/api/state && break; done
 ```
 
-Now restore the backed-up config:
+Verify `"wifi":"connected"`, the new `fw`, and the `*_configured` flags as
+before. Then **clean up** — the scratch dir and the built image both contain
+secrets:
 
 ```bash
+trash "$S"                       # or rm -rf "$S"
+pio run -e nodemcuv2 -t buildfs  # overwrite littlefs.bin with the normal image
+```
+
+Usage history (`/usage.bin`) and the weather cache are not preserved; they
+refill on their own.
+
+### B.5 Firmware + filesystem — fallback: restore through the setup AP
+
+Use when the FS can't be built locally (prebuilt `littlefs.bin` only).
+
+```bash
+S=$(mktemp -d)                                       # scratch: holds secrets
+curl -s -o "$S/cfg.json" http://<ip>/api/export
+curl -F "firmware=@firmware.bin"   http://<ip>/update
+curl -F "filesystem=@littlefs.bin" http://<ip>/update   # config gone → AP
+```
+
+> The device is rebooting into **`glimmer-setup`** (open AP). Join it and
+> tell me when connected.
+
+```bash
+curl -s http://192.168.4.1/api/state     # "wifi":"ap", *_configured false
 curl -X POST -H 'Content-Type: application/json' \
-     --data-binary @/tmp/glimmer-config-backup.json \
-     http://192.168.4.1/api/import
-# Returns {"ok":true,"restart":true} — device reboots and rejoins home Wi-Fi.
+     --data-binary @"$S/cfg.json" http://192.168.4.1/api/import
+# {"ok":true,"restart":true} — reboots onto home Wi-Fi
 ```
 
-Wait ~20 s. Tell the user to **switch back to their home Wi-Fi**. Then
-verify:
+> Switch back to your home Wi-Fi.
 
-```bash
-curl -s http://<device-ip>/api/state
-# Should be "wifi":"connected" with all *_configured flags true again.
-```
+Verify `/api/state` as in B.4, then `trash "$S"`.
 
-Done.
+## Phase C — device stuck on `glimmer-setup`
 
-## Phase C — recovery (device lost Wi-Fi)
+A running glimmer that loses Wi-Fi keeps retrying in place; it only brings up
+`glimmer-setup` at **boot** when two 30 s connect attempts fail. In AP mode
+it retries the saved network every 3 minutes, so a router that was simply
+late recovers on its own.
 
-If glimmer is on the device but it can't join Wi-Fi (e.g., router
-changed), it falls back to its `glimmer-setup` AP automatically after
-~3.5 minutes of failed reconnect attempts.
+If the network really changed: have the user join `glimmer-setup`, open
+`http://192.168.4.1/` and enter the new Wi-Fi, or `POST /api/import` a backup
+with the new credentials.
 
-Tell the user to wait for the AP, then proceed with B.5's recovery dance
-(join AP → restore or re-enter credentials via `http://192.168.4.1/`).
+## Failure modes
 
-## Failure modes to watch for
+- **`curl: (28)` / connection reset mid-OTA** → device is rebooting or the
+  laptop is on the wrong network. Wait for `/api/state`, retry.
+- **Tiny 5×7 text everywhere** → fonts missing: the filesystem wasn't
+  flashed. Flash it (B.4/B.5).
+- **`Auth -1` / `Auth -2`** → BearSSL handshake failed under heap pressure,
+  not a bad key. Check `/api/state` `maxblk` and `heap_refusals`.
+- **Setup AP doesn't appear** → the device may still be in its boot connect
+  attempts (~1 min). Wait, or power-cycle.
 
-- **`curl: (28) Connection timed out`** mid-OTA → device is mid-reboot.
-  Wait 15 s and retry.
-- **Channels show tiny dotted text** → filesystem wasn't uploaded
-  (fonts missing). Run `uploadfs` again.
-- **Claude shows `auth -1` or `auth -2`** → BearSSL handshake failed.
-  Heap pressure. Check `/api/state.heap` is ≥ 30 KB.
-- **Setup AP not appearing** → device might still be retrying Wi-Fi.
-  Wait 3-4 minutes, or unplug + replug to force AP mode.
+Deep diagnosis needs `pio device monitor -b 115200` over a USB-TTL adapter on
+the board's debug pads (USB-C has no data lines) — most users skip this.
 
-For deep diagnosis: `pio device monitor -b 115200` (requires USB-TTL
-adapter on the SmallTV-Ultra's debug pads, which are not exposed via
-USB-C — most users skip this).
-
-## What you do, what you ask the user to do
+## Who does what
 
 | Action | Who |
 |---|---|
 | Confirm OS / device state | ask user |
-| Plug device in | user |
-| Join `GIFTV` or `glimmer-setup` Wi-Fi | user |
-| Run `curl` to verify device responds | you |
-| Run `pio run` to build | you |
-| Run `curl … /update` for OTA | you |
-| Configure home Wi-Fi via stock UI | user |
-| Enter tokens / channel preferences | user |
-| Backup + restore config | you |
+| Plug in / power-cycle device | user |
+| Join `GIFTV` or `glimmer-setup` | user |
+| Configure Wi-Fi in the stock UI | user |
+| `curl` checks, downloads, builds, `/update` uploads | you |
+| Export / bake / restore config, delete scratch copies | you |
+| Enter keys and preferences in the web UI | user |
 
-Don't run any "skip ahead" commands without the matching physical step
-having been confirmed. ESP8266 OTA failures are mostly user-physical-state
-mismatches — most often the laptop is on the wrong Wi-Fi.
+Never run a step whose physical precondition (which Wi-Fi the laptop is on,
+device powered) hasn't been confirmed — most failed ESP8266 OTAs are that.

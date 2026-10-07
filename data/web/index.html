@@ -757,7 +757,7 @@ export GLIMMER_URL=${this.deviceUrl()}` + (tok ? `\nexport GLIMMER_TOKEN=${tok}`
     },
     claudeHooksSnippet() {
       return this.hooksSnippet('claude', [
-        ['Notification', 'permission_prompt|idle_prompt|agent_needs_input'],
+        ['Notification', 'permission_prompt|idle_prompt|agent_needs_input|elicitation_dialog'],
         ['PostToolUse', '*'], ['PostToolUseFailure', '*'],
         ['UserPromptSubmit'], ['Stop'], ['SessionEnd']]);
     },
