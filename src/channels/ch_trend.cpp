@@ -13,6 +13,7 @@
 #include "channel.h"
 #include "display.h"
 #include "history.h"
+#include "chrome.h"
 #include "theme.h"
 #include "config.h"
 #include <math.h>
@@ -24,19 +25,31 @@ static constexpr int kColW = 27, kColGap = 4, kX0 = 12;
 
 static float    s_today[2] = {-1.f, -1.f};
 static uint32_t s_hour = 0;
+static Cred     s_cred[2] = {Cred::NOT_SET, Cred::NOT_SET};   // claude, codex at last paint
 
-bool chTrendEnabled(const ChannelCtx& ctx) {
-    if (!ctx.settings || !ctx.settings->showTrend || time(nullptr) < 1000000000L) return false;
-    return !ctx.settings->claudeKey.isEmpty() || !ctx.settings->codexToken.isEmpty();
-}
-
-struct Block { const char* tag; uint16_t color; History::Metric metric; };
+struct Block { const char* tag; uint16_t color; History::Metric metric; Cred cred; bool isClaude; };
 
 static int blocksFor(const ChannelCtx& ctx, Block out[2]) {
     int n = 0;
-    if (!ctx.settings->claudeKey.isEmpty())  out[n++] = {"CLAUDE", Theme::CORAL, History::CLAUDE_WEEK};
-    if (!ctx.settings->codexToken.isEmpty()) out[n++] = {"CODEX",  Theme::LILAC, History::CODEX_WEEK};
+    if (!ctx.settings->claudeKey.isEmpty())
+        out[n++] = {"CLAUDE", Theme::CORAL, History::CLAUDE_WEEK, ctx.claude->cred, true};
+    if (!ctx.settings->codexToken.isEmpty())
+        out[n++] = {"CODEX",  Theme::LILAC, History::CODEX_WEEK,  ctx.codex->cred,  false};
     return n;
+}
+
+// Worth a slide only if some configured provider either has history to plot
+// or a working credential that will produce some. All keys dead and nothing
+// recorded = an empty chart; the Claude/Codex cards already explain why.
+bool chTrendEnabled(const ChannelCtx& ctx) {
+    if (!ctx.settings || !ctx.settings->showTrend || time(nullptr) < 1000000000L) return false;
+    Block b[2];
+    int n = blocksFor(ctx, b);
+    for (int i = 0; i < n; i++) {
+        if (!CredState::bad(b[i].cred)) return true;
+        if (History::lastReading(UsageHistory::ring(), b[i].metric, time(nullptr))) return true;
+    }
+    return false;
 }
 
 static History::Trend trendFor(const Settings& s, History::Metric m) {
@@ -52,7 +65,14 @@ static void paintBlock(int idx, const Block& b, const History::Trend& t, float s
     tft.setTextColor(b.color, Theme::BG);
     tft.drawString(b.tag, kX0, y);
 
-    char right[28] = "";
+    // Header right: the day's numbers — or, when they can't be live, why.
+    //   bad key + history:  "EXPIRED · LAST 3 AUG"  (coral/amber), bars dimmed
+    //   bad key, no history: "token expired · update" (coral)
+    //   no history yet:      "collecting data"        (muted)
+    const bool bad = CredState::bad(b.cred);
+    const time_t last = History::lastReading(UsageHistory::ring(), b.metric, time(nullptr));
+    char right[40] = "";
+    uint16_t rightColor = Theme::MUTED;
     char peak[4] = "";
     if (t.heaviest >= 0) {
         time_t d = time(nullptr) - (6 - t.heaviest) * 86400L;
@@ -60,11 +80,27 @@ static void paintBlock(int idx, const Block& b, const History::Trend& t, float s
         strftime(peak, sizeof(peak), "%a", &tm);
         for (char* p = peak; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
     }
-    if (t.have[6] && peak[0]) snprintf_P(right, sizeof(right), PSTR("TODAY %.0f \xC2\xB7 PEAK %s"), t.burn[6], peak);
-    else if (t.have[6])       snprintf_P(right, sizeof(right), PSTR("TODAY %.0f"), t.burn[6]);
+    if (bad && last) {
+        struct tm tm; localtime_r(&last, &tm);
+        char mon[4]; strftime(mon, sizeof(mon), "%b", &tm);
+        for (char* p = mon; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
+        snprintf_P(right, sizeof(right), PSTR("%s \xC2\xB7 LAST %d %s"),
+                   b.cred == Cred::BLOCKED ? "BLOCKED" : b.cred == Cred::EXPIRED ? "EXPIRED" : "REJECTED",
+                   tm.tm_mday, mon);
+        rightColor = credColor(b.cred);
+    } else if (bad) {
+        Chrome::credLine(b.isClaude, b.cred, right, sizeof(right));
+        rightColor = credColor(b.cred);
+    } else if (!last) {
+        snprintf_P(right, sizeof(right), PSTR("collecting data"));
+    } else if (t.have[6] && peak[0]) {
+        snprintf_P(right, sizeof(right), PSTR("TODAY %.0f \xC2\xB7 PEAK %s"), t.burn[6], peak);
+    } else if (t.have[6]) {
+        snprintf_P(right, sizeof(right), PSTR("TODAY %.0f"), t.burn[6]);
+    }
     Display::useFont("DMMono-11");
     tft.setTextDatum(TR_DATUM);
-    tft.setTextColor(Theme::MUTED, Theme::BG);
+    tft.setTextColor(rightColor, Theme::BG);
     tft.drawString(right, SCREEN_W - 12, y + 1);
 
     const int base = y + kBarTop + kBarH;
@@ -75,7 +111,9 @@ static void paintBlock(int idx, const Block& b, const History::Trend& t, float s
         int h = (int)(t.burn[i] / scale * kBarH + 0.5f);
         if (h < 2) h = 2;
         if (h > kBarH) h = kBarH;
-        tft.fillRect(x, base - h, kColW, h, i == 6 ? b.color : Theme::INK_DIM);
+        // Frozen data (dead key) is drawn dimmed, today included.
+        uint16_t c = bad ? Theme::LINE : (i == 6 ? b.color : Theme::INK_DIM);
+        tft.fillRect(x, base - h, kColW, h, c);
     }
 }
 
@@ -109,6 +147,7 @@ static void paintAll(const ChannelCtx& ctx) {
         s_today[i] = t[i].have[6] ? t[i].burn[6] : -1.f;
     }
     paintWeekdays();
+    s_cred[0] = ctx.claude->cred; s_cred[1] = ctx.codex->cred;
     s_hour = (uint32_t)(time(nullptr) / 3600);
 }
 
@@ -132,6 +171,7 @@ void chTrendTick(const ChannelCtx& ctx) {
     Block b[2];
     int n = blocksFor(ctx, b);
     bool dirty = (uint32_t)(now / 3600) != s_hour;
+    if (ctx.claude->cred != s_cred[0] || ctx.codex->cred != s_cred[1]) dirty = true;
     for (int i = 0; i < n && !dirty; i++) {
         History::Trend t = trendFor(*ctx.settings, b[i].metric);
         float today = t.have[6] ? t.burn[6] : -1.f;

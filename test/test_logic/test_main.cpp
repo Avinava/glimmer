@@ -178,6 +178,15 @@ void test_history_slot_tag_rejects_previous_lap() {
     TEST_ASSERT_EQUAL_INT8(-1, History::at(ring, h, History::CLAUDE_WEEK));
 }
 
+void test_history_last_reading() {
+    History::clear(ring);
+    TEST_ASSERT_EQUAL(0, History::lastReading(ring, History::CODEX_WEEK, T0));
+    History::record(ring, T0 - 30 * 3600, History::CODEX_WEEK, 40);
+    History::record(ring, T0 - 5 * 3600,  History::CODEX_WEEK, 30);
+    TEST_ASSERT_EQUAL((T0 / 3600 - 5) * 3600, History::lastReading(ring, History::CODEX_WEEK, T0));
+    TEST_ASSERT_EQUAL(0, History::lastReading(ring, History::CLAUDE_WEEK, T0));
+}
+
 void test_pace_empty_before_reset() {
     History::clear(ring);
     // 10 points per hour over the last 4 hours: 90 → 50.
@@ -389,6 +398,7 @@ int main(int, char**) {
     RUN_TEST(test_silent_failures_before_surfacing);
     RUN_TEST(test_retry_after_seconds_date_and_cap);
     RUN_TEST(test_history_slot_tag_rejects_previous_lap);
+    RUN_TEST(test_history_last_reading);
     RUN_TEST(test_pace_empty_before_reset);
     RUN_TEST(test_pace_lasts_until_reset);
     RUN_TEST(test_pace_stops_at_window_reset_and_needs_span);

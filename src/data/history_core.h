@@ -69,6 +69,15 @@ inline int8_t at(const Ring& r, uint32_t hour, Metric m) {
     return s.hour == tag(hour) ? s.v[m] : -1;
 }
 
+// Epoch of the newest reading for a metric within the ring's 7 days, 0 = none.
+inline time_t lastReading(const Ring& r, Metric m, time_t now) {
+    if (now < 1000000000L) return 0;
+    uint32_t h = (uint32_t)(now / 3600);
+    for (int back = 0; back < kSlots; back++)
+        if (at(r, h - back, m) >= 0) return (time_t)(h - back) * 3600;
+    return 0;
+}
+
 // ── Pace ────────────────────────────────────────────────────────────────────
 //
 // Burn rate from the oldest reading in the last `lookbackH` hours that is in
