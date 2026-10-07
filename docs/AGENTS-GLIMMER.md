@@ -140,8 +140,9 @@ answers 200, so the display can never block or decide anything.
 |---|---|
 | Claude `Notification` `permission_prompt` / Codex `PermissionRequest` | **approval** — tool as the big word, command below, `NEEDS YOU · 2M` |
 | Claude `Notification` `idle_prompt` / `agent_needs_input` / `elicitation_dialog` | **input** — `Your turn`, `WAITING · 2M` |
+| Codex `Stop` (turn finished, Codex waits for you) | **input** — `Your turn` with the start of Codex's last message, shown only if you haven't replied within 60 s (Codex has no idle event, so this mirrors Claude's `idle_prompt`) |
 | `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, `SessionEnd` | clears that session's card |
-| `Stop` (or `Notification` `agent_completed`) | clears it — or, with the "DONE card" setting on, a 20 s **DONE** card |
+| Claude `Stop` (or `Notification` `agent_completed`) | clears it — or, with the "DONE card" setting on, a 20 s **DONE** card |
 
 One card per agent session (id `claude:<first 8 chars of session id>`), so
 two sessions waiting at once cycle with queue dots. Neither agent fires an

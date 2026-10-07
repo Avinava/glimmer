@@ -47,7 +47,14 @@ struct Item {
     uint32_t created = 0;              // epoch
     uint32_t expires = 0;              // epoch, 0 = until cleared
     uint32_t interruptUntil = 0;       // epoch; card holds the screen until then
+    uint32_t showAfter = 0;            // epoch; hidden until then (0 = at once)
 };
+
+// Hidden items are queued but not shown yet (e.g. Codex "your turn", which
+// only surfaces if the user hasn't replied within a minute).
+inline bool visible(const Item& it, uint32_t now) {
+    return it.used && (!it.showAfter || now >= it.showAfter);
+}
 
 struct Queue { Item items[kMax]; };
 
@@ -181,16 +188,23 @@ inline int countKind(const Queue& q, Kind k) {
     for (const auto& it : q.items) n += (it.used && it.kind == k);
     return n;
 }
-inline int countWaiting(const Queue& q) {
+inline int countWaiting(const Queue& q, uint32_t now) {
     int n = 0;
-    for (const auto& it : q.items) n += (it.used && waitsOnUser(it.kind));
+    for (const auto& it : q.items) n += (visible(it, now) && waitsOnUser(it.kind));
+    return n;
+}
+inline int countVisible(const Queue& q, uint32_t now) {
+    int n = 0;
+    for (const auto& it : q.items) n += visible(it, now);
     return n;
 }
 
-// Slots in display order; returns how many.
-inline int ordered(const Queue& q, int out[kMax]) {
+// Slots in display order; returns how many. With now != 0, hidden items
+// (showAfter in the future) are left out.
+inline int ordered(const Queue& q, int out[kMax], uint32_t now = 0) {
     int n = 0;
-    for (int i = 0; i < kMax; i++) if (q.items[i].used) out[n++] = i;
+    for (int i = 0; i < kMax; i++)
+        if (q.items[i].used && (!now || visible(q.items[i], now))) out[n++] = i;
     for (int a = 1; a < n; a++)
         for (int b = a; b > 0 && before(q.items[out[b]], q.items[out[b - 1]]); b--) {
             int t = out[b]; out[b] = out[b - 1]; out[b - 1] = t;
@@ -200,7 +214,7 @@ inline int ordered(const Queue& q, int out[kMax]) {
 
 // Should the attention card hold the screen? pinWaiting = settings.pinApprovals.
 inline bool holdsScreen(const Item& it, uint32_t now, bool pinWaiting) {
-    if (!it.used) return false;
+    if (!visible(it, now)) return false;
     if (pinWaiting && waitsOnUser(it.kind)) return true;
     return it.display == SHOW_INTERRUPT && now < it.interruptUntil;
 }
@@ -222,6 +236,12 @@ struct HookEvent {
 
 enum HookAction : uint8_t { HOOK_NONE, HOOK_UPSERT, HOOK_CLEAR };
 
+// Codex has no "waiting for input" event; its Stop (turn finished, control
+// back to the user) becomes a "your turn" card that stays hidden this long,
+// so a quick reply (UserPromptSubmit clears it) never shows anything —
+// the same grace Claude Code gives its own idle_prompt notification.
+constexpr uint32_t kCodexIdleS = 60;
+
 // One card per agent session: "<agent>:<first 8 of session>".
 inline void sessionId(Agent a, const char* session, char* out, size_t n) {
     char s[9] = "";
@@ -242,10 +262,14 @@ inline void basename(const char* path, char* out, size_t n) {
 }
 
 // Map one hook event to an action on the queue. On HOOK_UPSERT `out` is the
-// item; on HOOK_CLEAR `out.id` is the card to clear.
+// item; on HOOK_CLEAR `out.id` is the card to clear. `extra`, when non-null
+// and its `used` comes back true, is a second card to upsert (Codex Stop
+// with done cards on: the DONE card next to the delayed "your turn").
 inline HookAction fromHook(Agent agent, const HookEvent& e, bool doneCards,
-                           uint32_t approvalTtlS, uint32_t now, Item& out) {
+                           uint32_t approvalTtlS, uint32_t now, Item& out,
+                           Item* extra = nullptr) {
     out = Item();
+    if (extra) *extra = Item();
     sessionId(agent, e.session, out.id, sizeof(out.id));
     out.agent = agent;
     basename(e.cwd, out.project, sizeof(out.project));
@@ -279,6 +303,28 @@ inline HookAction fromHook(Agent agent, const HookEvent& e, bool doneCards,
 
     bool finished = !strcmp(ev, "Stop")
                  || (!strcmp(ev, "Notification") && !strcmp(ty, "agent_completed"));
+    if (agent == AGENT_CODEX && !strcmp(ev, "Stop")) {
+        if (doneCards && extra) {
+            Item& d = *extra;
+            d = out;
+            snprintf(d.id, sizeof(d.id), "%.18s:done", out.id);
+            d.kind = K_SUCCESS;
+            copyStr(d.title, sizeof(d.title), "DONE");
+            copyStr(d.body, sizeof(d.body), "Codex finished");
+            d.display = SHOW_INTERRUPT;
+            d.expires = now + 20;
+            d.interruptUntil = now + 20;
+            d.used = true;
+        }
+        out.kind = K_INPUT;
+        copyStr(out.title, sizeof(out.title), "WAITING FOR YOU");
+        copyStr(out.body, sizeof(out.body), e.message);
+        out.display = SHOW_INTERRUPT;
+        out.showAfter = now + kCodexIdleS;
+        out.expires = approvalTtlS ? out.showAfter + approvalTtlS : 0;
+        out.interruptUntil = out.showAfter + kInterruptS;
+        return HOOK_UPSERT;
+    }
     if (finished && doneCards) {
         out.kind = K_SUCCESS;
         copyStr(out.title, sizeof(out.title), "DONE");

@@ -441,10 +441,13 @@ static void handleHook() {
     e.detail  = d["detail"]  | "";
     e.message = d["message"] | "";
     Attention::Agent agent = Attention::agentFrom(server.arg("agent").c_str());
-    Attention::Item it;
+    Attention::Item it, extra;
     switch (Attention::fromHook(agent, e, mainAgentDoneCards(), mainApprovalTtlS(),
-                                AttentionQueue::now(), it)) {
-        case Attention::HOOK_UPSERT: AttentionQueue::put(it); break;
+                                AttentionQueue::now(), it, &extra)) {
+        case Attention::HOOK_UPSERT:
+            if (extra.used) AttentionQueue::put(extra);
+            AttentionQueue::put(it);
+            break;
         case Attention::HOOK_CLEAR:  AttentionQueue::clear(it.id); break;
         default: break;
     }

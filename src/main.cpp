@@ -202,7 +202,7 @@ static void drawIndicator(uint32_t now) {
     using namespace Layout;
     if (g_apMode || g_activeCount == 0) return;
     const Attention::Queue& aq = AttentionQueue::get();
-    if (Attention::countWaiting(aq) > 0) {
+    if (Attention::countWaiting(aq, AttentionQueue::now()) > 0) {
         uint16_t c = Attention::countKind(aq, Attention::K_APPROVAL) ? Theme::AMBER : Theme::SKY;
         tft.fillRect(0, INDICATOR_Y, SCREEN_W, INDICATOR_H, c);
         return;

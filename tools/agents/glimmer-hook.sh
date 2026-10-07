@@ -28,7 +28,8 @@ payload=$(jq -c '{
   tool:    (.tool_name         // ""),
   detail:  ((.tool_input.command // .tool_input.file_path // .tool_input.path // "")
             | tostring | .[0:60]),
-  message: ((.message // "") | tostring | .[0:80])
+  message: ((.message // .last_assistant_message // "") | tostring
+            | gsub("\\s+"; " ") | .[0:80])
 }' 2>/dev/null) || exit 0
 [ -n "$payload" ] || exit 0
 

@@ -173,6 +173,10 @@ glyph's w×h grayscale bytes. Runbook: `.claude/skills/regenerate-fonts.md`.
 - `/hook` takes the **trimmed** event from `tools/agents/glimmer-hook.sh`,
   never raw hook JSON (PostToolUse carries whole tool output; bodies > 2 KB
   are ignored). It always answers 200 so a hook can't block an agent.
+- Items can be **hidden until `showAfter`**: Codex has no idle event, so its
+  `Stop` queues a "your turn" card visible only after 60 s (`kCodexIdleS`);
+  `UserPromptSubmit` clears it first if the user replies. Use
+  `ordered(q, ord, now)` / `countWaiting(q, now)` for anything on screen.
 - `Attention` channel = the full-screen card (holds ≤ 30 s, or until answered
   for approvals/inputs when `pinApprovals`; several holders cycle every 6 s).
   `Agents` channel = the list (≤ 3 rows; more → 2 rows + "+ N more").

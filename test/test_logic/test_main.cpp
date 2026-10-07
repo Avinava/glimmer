@@ -421,7 +421,7 @@ void test_attention_order_and_eviction() {
         Attention::upsert(full, mk(id, Attention::K_APPROVAL), 10 + k);
     }
     TEST_ASSERT_EQUAL(-1, Attention::upsert(full, mk("x", Attention::K_ERROR), 20));
-    TEST_ASSERT_EQUAL(Attention::kMax, Attention::countWaiting(full));
+    TEST_ASSERT_EQUAL(Attention::kMax, Attention::countWaiting(full, 100));
 }
 
 void test_attention_expire_and_clear() {
@@ -491,6 +491,46 @@ void test_attention_hook_mapping() {
     Attention::HookEvent pre; pre.event = "PreToolUse";
     TEST_ASSERT_EQUAL(Attention::HOOK_NONE,
         Attention::fromHook(Attention::AGENT_CLAUDE, pre, true, 1800, 1000, it));
+}
+
+void test_codex_stop_is_a_delayed_your_turn() {
+    Attention::Item it, extra;
+    Attention::HookEvent stop;
+    stop.event = "Stop"; stop.session = "abcd1234-x"; stop.cwd = "/w/api";
+    stop.message = "Which database should the migration target?";
+    TEST_ASSERT_EQUAL(Attention::HOOK_UPSERT,
+        Attention::fromHook(Attention::AGENT_CODEX, stop, false, 1800, 1000, it, &extra));
+    TEST_ASSERT_EQUAL(Attention::K_INPUT, it.kind);
+    TEST_ASSERT_EQUAL_STRING("codex:abcd1234", it.id);
+    TEST_ASSERT_EQUAL_UINT32(1000 + Attention::kCodexIdleS, it.showAfter);
+    TEST_ASSERT_FALSE(extra.used);                            // done cards off
+
+    // Hidden for the first minute: not listed, not holding, not counted.
+    Attention::Queue q;
+    Attention::upsert(q, it, 1000);
+    int ord[Attention::kMax];
+    TEST_ASSERT_EQUAL(0, Attention::ordered(q, ord, 1030));
+    TEST_ASSERT_EQUAL(0, Attention::countWaiting(q, 1030));
+    TEST_ASSERT_FALSE(Attention::holdsScreen(q.items[0], 1030, true));
+    TEST_ASSERT_EQUAL(1, Attention::ordered(q, ord, 1060));
+    TEST_ASSERT_EQUAL(1, Attention::countWaiting(q, 1060));
+    TEST_ASSERT_TRUE(Attention::holdsScreen(q.items[0], 1060, true));
+    TEST_ASSERT_EQUAL(1, Attention::ordered(q, ord));       // unfiltered list still has it
+
+    // A reply before then clears it — nothing ever shows.
+    Attention::HookEvent reply; reply.event = "UserPromptSubmit"; reply.session = "abcd1234-x";
+    Attention::Item c;
+    TEST_ASSERT_EQUAL(Attention::HOOK_CLEAR,
+        Attention::fromHook(Attention::AGENT_CODEX, reply, false, 1800, 1010, c));
+    TEST_ASSERT_TRUE(Attention::clear(q, c.id));
+
+    // Done cards on: a DONE card now, next to the delayed your-turn card.
+    Attention::fromHook(Attention::AGENT_CODEX, stop, true, 1800, 1000, it, &extra);
+    TEST_ASSERT_TRUE(extra.used);
+    TEST_ASSERT_EQUAL(Attention::K_SUCCESS, extra.kind);
+    TEST_ASSERT_EQUAL_STRING("codex:abcd1234:done", extra.id);
+    TEST_ASSERT_EQUAL_UINT32(0, extra.showAfter);
+    TEST_ASSERT_EQUAL(Attention::K_INPUT, it.kind);
 }
 
 void test_attention_json_legacy_and_new() {
@@ -570,6 +610,7 @@ int main(int, char**) {
     RUN_TEST(test_attention_expire_and_clear);
     RUN_TEST(test_attention_holds_screen);
     RUN_TEST(test_attention_hook_mapping);
+    RUN_TEST(test_codex_stop_is_a_delayed_your_turn);
     RUN_TEST(test_attention_json_legacy_and_new);
     RUN_TEST(test_night_window_wraps_and_disables);
     RUN_TEST(test_night_brightness);

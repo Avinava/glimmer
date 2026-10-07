@@ -79,6 +79,7 @@ inline void toJson(const Item& it, uint32_t now, JsonObject o) {
     o["age_s"]   = now >= it.created ? now - it.created : 0;
     if (it.expires) o["expires_in_s"] = it.expires > now ? it.expires - now : 0;
     if (it.urgent) o["urgent"] = true;
+    if (it.showAfter > now) o["shows_in_s"] = it.showAfter - now;
 }
 
 }  // namespace Attention

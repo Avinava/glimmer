@@ -54,7 +54,7 @@ static bool allowedAtNight(const Item& it) {
 static int holders(int out[kMax]) {
     const Queue& q = AttentionQueue::get();
     uint32_t now = AttentionQueue::now();
-    int ord[kMax], n = ordered(q, ord), m = 0;
+    int ord[kMax], n = ordered(q, ord, now), m = 0;
     bool night = mainNightFace();
     for (int i = 0; i < n; i++) {
         const Item& it = q.items[ord[i]];
@@ -287,7 +287,7 @@ static uint32_t s_listRev = 0;
 static uint32_t s_listMin = 0xFFFFFFFF;
 
 bool chAgentsEnabled(const ChannelCtx&) {
-    return !mainNightFace() && count(AttentionQueue::get()) > 0;
+    return !mainNightFace() && countVisible(AttentionQueue::get(), AttentionQueue::now()) > 0;
 }
 
 static void listRow(const Item& it, int y, uint32_t now) {
@@ -328,7 +328,7 @@ static void listRow(const Item& it, int y, uint32_t now) {
 static void paintList() {
     const Queue& q = AttentionQueue::get();
     uint32_t now = AttentionQueue::now();
-    int ord[kMax], n = ordered(q, ord);
+    int ord[kMax], n = ordered(q, ord, now);
     tft.fillRect(0, 0, SCREEN_W, Layout::CONTENT_BOTTOM, Theme::BG);
     centerText("Silkscreen-12", "AGENTS", 10, Theme::MUTED);
     int shown = n > 3 ? 2 : n;
