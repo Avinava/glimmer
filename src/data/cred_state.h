@@ -40,18 +40,21 @@ inline Cred derive(bool configured, const FetchPolicy::State& pol, time_t jwtExp
 }
 
 // `exp` claim of a JWT (seconds since epoch), 0 when the token is not a JWT
-// or carries no exp. Decodes only the payload segment.
+// or carries no exp. Streams the base64url payload through a tiny matcher —
+// real access tokens carry 1–2 KB of claims with `exp` near the end, so
+// nothing is buffered.
 inline time_t jwtExp(const char* token) {
     if (!token) return 0;
     const char* a = strchr(token, '.');
     if (!a) return 0;
     const char* b = strchr(a + 1, '.');
     if (!b || b - a - 1 <= 0) return 0;
-    // base64url → bytes, into a bounded buffer (payloads are well under 1 KB).
-    char out[768];
-    size_t o = 0;
+    static const char kKey[] = "\"exp\"";
+    size_t matched = 0;          // chars of kKey matched so far
+    int    stage = 0;            // 0 seek key, 1 after key (skip ' ' ':'), 2 digits
+    long   val = 0;
     uint32_t acc = 0; int bits = 0;
-    for (const char* p = a + 1; p < b && o < sizeof(out) - 1; p++) {
+    for (const char* p = a + 1; p < b; p++) {
         char c = *p; int v;
         if (c >= 'A' && c <= 'Z') v = c - 'A';
         else if (c >= 'a' && c <= 'z') v = c - 'a' + 26;
@@ -61,15 +64,22 @@ inline time_t jwtExp(const char* token) {
         else if (c == '=') break;
         else return 0;
         acc = (acc << 6) | (uint32_t)v; bits += 6;
-        if (bits >= 8) { bits -= 8; out[o++] = (char)((acc >> bits) & 0xFF); }
+        if (bits < 8) continue;
+        bits -= 8;
+        char ch = (char)((acc >> bits) & 0xFF);
+        if (stage == 0) {
+            if (ch == kKey[matched]) { if (++matched == sizeof(kKey) - 1) stage = 1; }
+            else matched = (ch == kKey[0]) ? 1 : 0;
+        } else if (stage == 1) {
+            if (ch == ' ' || ch == ':') continue;
+            if (ch < '0' || ch > '9') { stage = 0; matched = 0; continue; }
+            stage = 2; val = ch - '0';
+        } else {
+            if (ch < '0' || ch > '9') return (time_t)val;
+            val = val * 10 + (ch - '0');
+        }
     }
-    out[o] = '\0';
-    const char* e = strstr(out, "\"exp\"");
-    if (!e) return 0;
-    e += 5;
-    while (*e == ' ' || *e == ':') e++;
-    if (*e < '0' || *e > '9') return 0;
-    return (time_t)strtol(e, nullptr, 10);
+    return stage == 2 ? (time_t)val : 0;
 }
 
 // Status-bar meta (≤ 10 chars). "" when nothing credential-related to say.
