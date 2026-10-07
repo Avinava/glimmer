@@ -72,250 +72,168 @@ bool chAttentionEnabled(const ChannelCtx&) {
 
 // ── card ────────────────────────────────────────────────────────────────────
 //
-// Two layouts, both using the full 240×240 (status bar like every channel):
+// One focal element per card, centred, three type sizes at most:
 //
-//  waiting (approval / input)            result (success / error / warning / info / progress)
-//  [CLAUDE]  Approval      glimmer       [CODEX]   Done          api
-//  ───────────────── amber               ───────────────── mint
-//       NEEDS YOU      VT323-44                TESTS PASSED   Silkscreen-16
-//  ▌BASH               panel                   142/142        VT323-86/64/44 (fits)
-//  ▌$ pio run -e …     2 lines                 main · 3m      body (panel for error/warning)
-//  WAITING      QUEUE                      ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬     time left, drains
-//  2:14          1/2   VT323-32
-//    answer in your terminal             progress: TESTS / 64% (VT323-86) / segmented bar
+//   y 44   ■ CLAUDE · glimmer          agent square + project, DMMono-11 muted
+//   y 78   Bash / 142/142 / 64%        focal, VT323-64 (44 when it won't fit)
+//   y 140  pio run -e nodemcuv2…       one detail line, DMMono-11 muted
+//   y 176  NEEDS YOU · 2M              status, Silkscreen-12 in the kind colour
+//   y 200  ● ○                         queue dots / time-left hairline
+//
+// (Result cards swap the last two: kind-coloured title at 146, detail at 166.)
 
 static char     s_shownId[24] = "";
 static uint32_t s_shownRev = 0;
 static uint32_t s_cycleMs = 0;
 static int      s_cycleIdx = 0;
 static int      s_lastDrain = -1;
-static uint32_t s_lastSecs = 0xFFFFFFFF;
+static char     s_status[24] = "";
 
-static const char* agentLabel(Agent a) {
+static const char* agentName2(Agent a) {
     return a == AGENT_CLAUDE ? "CLAUDE" : a == AGENT_CODEX ? "CODEX" : nullptr;
 }
 
-static const char* barTitle(const Item& it) {
-    switch (it.kind) {
-        case K_APPROVAL: return "Approval";
-        case K_INPUT:    return "Your turn";
-        case K_ERROR:    return "Failed";
-        case K_WARNING:  return "Heads up";
-        case K_SUCCESS:  return "Done";
-        case K_PROGRESS: return "Running";
-        default:         return "Note";
+// Truncate with an ellipsis until it fits maxW (current font).
+static void fitLine(char* s, int maxW) {
+    if (tft.textWidth(s) <= maxW) return;
+    size_t n = strlen(s);
+    while (n > 1) {
+        s[--n] = '\0';
+        char t[48]; snprintf(t, sizeof(t), "%s...", s);
+        if (tft.textWidth(t) <= maxW) { snprintf(s, 48, "%s", t); return; }
     }
 }
 
-// Status bar + the agent name in its colour at the left.
-static void paintBar(const Item& it) {
-    Display::statusBar(barTitle(it), it.project, kindColor(it.kind));
-    if (const char* a = agentLabel(it.agent)) {
-        Display::useFont("DMMono-11");
-        tft.setTextDatum(ML_DATUM);
-        tft.setTextColor(agentColor(it.agent), Theme::BG);
-        tft.drawString(a, 4, Layout::STATUS_BOTTOM / 2);
-    }
+static void centerText(const char* font, const char* text, int y, uint16_t color, int maxW = 216) {
+    Display::useFont(font);
+    char buf[48]; snprintf(buf, sizeof(buf), "%s", text);
+    fitLine(buf, maxW);
+    tft.setTextDatum(TC_DATUM);
+    tft.setTextColor(color, Theme::BG);
+    tft.drawString(buf, SCREEN_W / 2, y);
 }
 
-// Word-wrap `s` into up to 2 lines that fit `maxW` (DMMono-11 loaded).
-static int wrap2(const char* s, int maxW, char a[44], char b[44]) {
-    a[0] = b[0] = '\0';
-    char buf[48]; snprintf(buf, sizeof(buf), "%s", s);
-    if (tft.textWidth(buf) <= maxW) { snprintf(a, 44, "%s", buf); return 1; }
-    int len = (int)strlen(buf), cut = len;
-    for (int i = len; i > 0; i--) {
-        if (buf[i] != ' ' && buf[i] != '\0') continue;
-        char c = buf[i]; buf[i] = '\0';
-        bool fits = tft.textWidth(buf) <= maxW;
-        buf[i] = c;
-        if (fits) { cut = i; break; }
-    }
-    if (cut == len) {                                  // one long word: hard cut
-        cut = len;
-        while (cut > 1) { char c = buf[cut]; buf[cut] = '\0'; bool f = tft.textWidth(buf) <= maxW; buf[cut] = c; if (f) break; cut--; }
-    }
-    snprintf(a, 44, "%.*s", cut, buf);
-    const char* rest = buf + cut; while (*rest == ' ') rest++;
-    snprintf(b, 44, "%s", rest);
-    while (strlen(b) > 1 && tft.textWidth(b) > maxW) b[strlen(b) - 1] = '\0';
-    return b[0] ? 2 : 1;
-}
-
-// Inset panel: accent bar on the left, optional small caps label, 2 text lines.
-static void panel(int y, int h, uint16_t accent, const char* label, const char* text) {
-    tft.fillRect(10, y, 220, h, Theme::PANEL);
-    tft.fillRect(10, y, 3, h, accent);
-    int ty = y + 7;
-    if (label && *label) {
-        Display::useFont("Silkscreen-12");
-        tft.setTextDatum(TL_DATUM);
-        tft.setTextColor(Theme::MUTED, Theme::PANEL);
-        tft.drawString(label, 20, ty);
-        ty += 17;
-    }
+// "■ CLAUDE · glimmer" — square in the agent colour, words muted.
+static void paintHeader(const Item& it) {
+    char line[40];
+    const char* a = agentName2(it.agent);
+    if (a && it.project[0]) snprintf_P(line, sizeof(line), PSTR("%s \xC2\xB7 %s"), a, it.project);
+    else if (a)             snprintf_P(line, sizeof(line), PSTR("%s"), a);
+    else                    snprintf_P(line, sizeof(line), PSTR("%s"), it.project[0] ? it.project : "glimmer");
     Display::useFont("DMMono-11");
+    int w = tft.textWidth(line) + (a ? 12 : 0);
+    int x = (SCREEN_W - w) / 2;
+    if (a) { tft.fillRect(x, 48, 6, 6, agentColor(it.agent)); x += 12; }
     tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::INK, Theme::PANEL);
-    char a[44], b[44];
-    wrap2(text, 204, a, b);
-    tft.drawString(a, 20, ty);
-    if (b[0]) tft.drawString(b, 20, ty + 15);
+    tft.setTextColor(Theme::MUTED, Theme::BG);
+    tft.drawString(line, x, 44);
 }
 
-// "Bash: pio run" → label "BASH", text "$ pio run". Otherwise label = fallback.
-static void splitTool(const char* body, const char* fallback, char label[16], char text[44]) {
+// The biggest VT323 (64, else 44) that fits, centred at y.
+static void focal(const char* text, int y) {
+    Display::useFont("VT323-64");
+    const char* f = tft.textWidth(text) <= 216 ? "VT323-64" : "VT323-44";
+    Display::useFont(f);
+    int dy = strcmp(f, "VT323-44") ? 0 : 8;
+    centerText(f, text, y + dy, Theme::INK);
+}
+
+// "Bash: pio run" → tool "Bash", detail "pio run"; "wants to use Bash" → "Bash".
+static void toolAndDetail(const char* body, char tool[24], char detail[44]) {
+    tool[0] = detail[0] = '\0';
     const char* colon = strstr(body, ": ");
-    if (colon && colon - body > 0 && colon - body < 15) {
-        int n = (int)(colon - body);
-        for (int i = 0; i < n; i++) { char c = body[i]; label[i] = (c >= 'a' && c <= 'z') ? c - 32 : c; }
-        label[n] = '\0';
-        snprintf(text, 44, "$ %s", colon + 2);
+    if (colon && colon - body > 0 && colon - body < 20) {
+        snprintf(tool, 24, "%.*s", (int)(colon - body), body);
+        snprintf(detail, 44, "%s", colon + 2);
         return;
     }
-    snprintf(label, 16, "%s", fallback);
-    snprintf(text, 44, "%s", body);
+    const char* use = strstr(body, "use ");
+    if (use) { snprintf(tool, 24, "%s", use + 4); return; }
+    snprintf(detail, 44, "%s", body);
 }
 
-static void fmtWait(uint32_t secs, char* buf, size_t n) {
-    if (secs < 3600) snprintf_P(buf, n, PSTR("%lu:%02lu"), (unsigned long)(secs / 60), (unsigned long)(secs % 60));
-    else             snprintf_P(buf, n, PSTR("%luh%02lu"), (unsigned long)(secs / 3600), (unsigned long)((secs % 3600) / 60));
-}
-
-static void paintWaitTimer(const Item& it) {
+static void statusText(const Item& it, char* buf, size_t n) {
     uint32_t secs = AttentionQueue::now() - it.created;
-    char t[12]; fmtWait(secs, t, sizeof(t));
-    tft.fillRect(10, 166, 120, 30, Theme::BG);
-    Display::useFont("VT323-32");
-    tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::INK, Theme::BG);
-    tft.drawString(t, 12, 166);
-    s_lastSecs = secs;
+    char d[8];
+    if (secs < 60) snprintf_P(d, sizeof(d), PSTR("%luS"), (unsigned long)secs);
+    else           TimeUtil::shortDuration((long)secs, d, sizeof(d));
+    snprintf_P(buf, n, PSTR("%s \xC2\xB7 %s"), it.kind == K_APPROVAL ? "NEEDS YOU" : "WAITING", d);
+}
+
+static void paintStatus(const Item& it) {
+    char s[24]; statusText(it, s, sizeof(s));
+    tft.fillRect(0, 172, SCREEN_W, 20, Theme::BG);
+    centerText("Silkscreen-12", s, 176, kindColor(it.kind));
+    snprintf(s_status, sizeof(s_status), "%s", s);
+}
+
+static void paintDots(int n, uint16_t color) {
+    if (n < 2) return;
+    int x = SCREEN_W / 2 - (n * 10 - 4) / 2;
+    for (int i = 0; i < n; i++) tft.fillRect(x + i * 10, 200, 6, 6, i == s_cycleIdx ? color : Theme::LINE);
 }
 
 static void paintWaiting(const Item& it, int n) {
-    const uint16_t kc = kindColor(it.kind);
-    Display::useFont("VT323-44");
-    tft.setTextDatum(TC_DATUM);
-    tft.setTextColor(kc, Theme::BG);
     const bool custom = it.title[0] && strcmp(it.title, "APPROVAL NEEDED") && strcmp(it.title, "WAITING FOR YOU");
-    tft.drawString(custom ? it.title : (it.kind == K_APPROVAL ? "NEEDS YOU" : "YOUR TURN"), SCREEN_W / 2, 30);
-
-    char label[16], text[44];
-    splitTool(it.body[0] ? it.body : (it.kind == K_APPROVAL ? "wants your approval" : "is waiting for you"),
-              it.kind == K_APPROVAL ? "PERMISSION" : "WAITING FOR INPUT", label, text);
-    panel(80, 62, kc, label, text);
-
-    Display::useFont("DMMono-11");
-    tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::MUTED, Theme::BG);
-    tft.drawString("WAITING", 12, 154);
-    paintWaitTimer(it);
-    if (n > 1) {
-        tft.setTextDatum(TR_DATUM);
-        tft.drawString("QUEUE", SCREEN_W - 12, 154);
-        char q[12]; snprintf_P(q, sizeof(q), PSTR("%d/%d"), s_cycleIdx + 1, n);
-        Display::useFont("VT323-32");
-        tft.setTextColor(Theme::INK, Theme::BG);
-        tft.drawString(q, SCREEN_W - 12, 166);
+    char tool[24], detail[44];
+    toolAndDetail(it.body, tool, detail);
+    if (it.kind == K_INPUT) {
+        focal(custom ? it.title : "Your turn", 78);
+        if (!detail[0] && tool[0]) snprintf(detail, sizeof(detail), "%s", it.body);
+    } else {
+        focal(custom ? it.title : (tool[0] ? tool : "Approve?"), 78);
     }
-    Display::useFont("DMMono-11");
-    tft.setTextDatum(TC_DATUM);
-    tft.setTextColor(Theme::INK_DIM, Theme::BG);
-    tft.drawString("answer in your terminal", SCREEN_W / 2, 204);
+    if (detail[0]) centerText("DMMono-11", detail, 140, Theme::MUTED);
+    paintStatus(it);
+    paintDots(n, kindColor(it.kind));
 }
 
-// Time-left bar at the bottom of result cards; drains as the card expires.
+// Hairline under result cards that shortens as the card's time runs out.
 static void paintDrain(const Item& it) {
     if (!it.expires || it.expires <= it.created) return;
     uint32_t now = AttentionQueue::now();
     uint32_t total = it.expires - it.created, left = it.expires > now ? it.expires - now : 0;
-    int w = (int)((uint64_t)216 * left / total);
+    int w = (int)((uint64_t)60 * left / total);
     if (w == s_lastDrain) return;
-    tft.fillRect(12, 212, 216, 3, Theme::PANEL);
-    tft.fillRect(12, 212, w, 3, kindColor(it.kind));
+    tft.drawFastHLine(90, 200, 60, Theme::LINE);
+    if (w > 0) tft.drawFastHLine(90, 200, w, kindColor(it.kind));
     s_lastDrain = w;
 }
 
-// Biggest VT323 that fits 216 px.
-static void bigValue(const char* v, int y, uint16_t color) {
-    static const char* kFonts[] = {"VT323-86", "VT323-64", "VT323-44"};
-    for (const char* f : kFonts) {
-        Display::useFont(f);
-        if (tft.textWidth(v) <= 216 || f == kFonts[2]) {
-            tft.setTextDatum(TC_DATUM);
-            tft.setTextColor(color, Theme::BG);
-            int h = tft.fontHeight();
-            tft.drawString(v, SCREEN_W / 2, y + (70 - h) / 2);
-            return;
-        }
-    }
-}
+static void upper(char* s) { for (; *s; s++) if (*s >= 'a' && *s <= 'z') *s -= 32; }
 
-static void paintProgress(const Item& it) {
+static void paintResult(const Item& it, int n) {
     const uint16_t kc = kindColor(it.kind);
-    Display::useFont("Silkscreen-16");
-    tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(kc, Theme::BG);
-    tft.drawString(it.title[0] ? it.title : "WORKING", 12, 34);
-    char pct[6]; snprintf_P(pct, sizeof(pct), PSTR("%d"), it.progress);
-    Display::useFont("VT323-86");
-    tft.setTextColor(Theme::INK, Theme::BG);
-    tft.drawString(pct, 12, 54);
-    int w = tft.textWidth(pct), h = tft.fontHeight();
-    Display::useFont("VT323-44");
-    tft.setTextColor(kc, Theme::BG);
-    tft.drawString("%", 12 + w + 2, 54 + h - tft.fontHeight() - 4);
-    Display::pixelBar(12, 140, SCREEN_W - 24, 10, it.progress, kc);
-    Display::useFont("DMMono-11");
-    tft.setTextDatum(TL_DATUM);
-    if (it.body[0]) {
-        char a[44], b[44];
-        wrap2(it.body, 216, a, b);
-        tft.setTextColor(Theme::INK_DIM, Theme::BG);
-        tft.drawString(a, 12, 160);
-        if (b[0]) tft.drawString(b, 12, 175);
-    }
-    char d[8]; TimeUtil::shortDuration((long)(AttentionQueue::now() - it.created), d, sizeof(d));
-    char started[24]; snprintf_P(started, sizeof(started), PSTR("started %s ago"), d);
-    for (char* p = started; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 32;
-    tft.setTextColor(Theme::MUTED, Theme::BG);
-    tft.drawString(started, 12, 196);
-}
-
-static void paintResult(const Item& it) {
-    const uint16_t kc = kindColor(it.kind);
-    const bool boxed = it.kind == K_ERROR || it.kind == K_WARNING;
-    int y = it.value[0] ? 40 : 64;
-    Display::useFont("Silkscreen-16");
-    tft.setTextDatum(TC_DATUM);
-    tft.setTextColor(kc, Theme::BG);
-    tft.drawString(it.title[0] ? it.title : kindName(it.kind), SCREEN_W / 2, y);
-    y += 24;
-    if (it.value[0]) { bigValue(it.value, y, Theme::INK); y += 80; }
-    else             y += 10;
-    if (it.body[0]) {
-        if (boxed) panel(y, 42, kc, nullptr, it.body);
-        else {
-            Display::useFont("DMMono-11");
-            char a[44], b[44];
-            wrap2(it.body, 216, a, b);
-            tft.setTextDatum(TC_DATUM);
-            tft.setTextColor(Theme::INK_DIM, Theme::BG);
-            tft.drawString(a, SCREEN_W / 2, y + 4);
-            if (b[0]) tft.drawString(b, SCREEN_W / 2, y + 19);
-        }
+    char title[28]; snprintf(title, sizeof(title), "%s", it.title[0] ? it.title : kindName(it.kind));
+    upper(title);
+    if (it.progress >= 0) {
+        char pct[8]; snprintf_P(pct, sizeof(pct), PSTR("%d%%"), it.progress);
+        focal(pct, 78);
+        tft.fillRect(50, 146, 140, 4, Theme::PANEL);
+        tft.fillRect(50, 146, 140 * it.progress / 100, 4, kc);
+        centerText("Silkscreen-12", title, 164, kc);
+        if (it.body[0]) centerText("DMMono-11", it.body, 184, Theme::MUTED);
+    } else if (it.value[0]) {
+        focal(it.value, 78);
+        centerText("Silkscreen-12", title, 146, kc);
+        if (it.body[0]) centerText("DMMono-11", it.body, 166, Theme::MUTED);
+    } else {
+        // No value: the title is the focal element, in the kind colour.
+        Display::useFont("VT323-44");
+        const char* f = tft.textWidth(it.title[0] ? it.title : kindName(it.kind)) <= 216 ? "VT323-44" : "VT323-32";
+        centerText(f, it.title[0] ? it.title : kindName(it.kind), 92, kc);
+        if (it.body[0]) centerText("DMMono-11", it.body, 146, Theme::MUTED);
     }
     s_lastDrain = -1;
-    paintDrain(it);
+    if (n > 1) paintDots(n, kc);
+    else       paintDrain(it);
 }
 
 static void paintCard(const Item& it, int n) {
     tft.fillRect(0, 0, SCREEN_W, Layout::CONTENT_BOTTOM, Theme::BG);
-    paintBar(it);
-    if (waitsOnUser(it.kind))  paintWaiting(it, n);
-    else if (it.progress >= 0) paintProgress(it);
-    else                       paintResult(it);
+    paintHeader(it);
+    if (waitsOnUser(it.kind)) paintWaiting(it, n);
+    else                      paintResult(it, n);
     snprintf(s_shownId, sizeof(s_shownId), "%s", it.id);
 }
 
@@ -350,19 +268,20 @@ void chAttentionTick(const ChannelCtx&) {
         return;
     }
     if (waitsOnUser(it.kind)) {
-        if (AttentionQueue::now() - it.created != s_lastSecs) paintWaitTimer(it);
-    } else if (it.progress < 0) {
+        char s[24]; statusText(it, s, sizeof(s));
+        if (strcmp(s, s_status)) paintStatus(it);
+    } else if (n < 2 && it.progress < 0) {
         paintDrain(it);
     }
 }
 
 // ── Agents list ─────────────────────────────────────────────────────────────
 //
-//  Agents                    3 ACTIVE
-//  ▌[CLAUDE] glimmer              2m      44-px rows on PANEL,
-//  ▌NEEDS YOU · Bash                      kind-colour bar on the left
-//  ▌[CODEX] api                   4m
-//  ▌TESTS          ▮▮▮▮▮▯▯▯▯
+//            AGENTS                   Silkscreen-12 muted, no status bar
+//   ■ Needs you · Bash                DMMono-11 ink
+//     claude · glimmer · 2m           DMMono-11 muted
+//   ─────────────────────             hairline
+//   (3 rows; a 4th+ becomes "+ N more")
 
 static uint32_t s_listRev = 0;
 static uint32_t s_listMin = 0xFFFFFFFF;
@@ -372,58 +291,55 @@ bool chAgentsEnabled(const ChannelCtx&) {
 }
 
 static void listRow(const Item& it, int y, uint32_t now) {
-    const uint16_t kc = kindColor(it.kind);
-    tft.fillRect(8, y, 224, 44, Theme::PANEL);
-    tft.fillRect(8, y, 3, 44, kc);
-    int x = 18;
-    Display::useFont("DMMono-11");
-    if (const char* a = agentLabel(it.agent)) {
-        int w = tft.textWidth(a) + 8;
-        tft.fillRect(x, y + 5, w, 15, agentColor(it.agent));
-        tft.setTextDatum(TL_DATUM);
-        tft.setTextColor(Theme::BG, agentColor(it.agent));
-        tft.drawString(a, x + 4, y + 7);
-        x += w + 6;
-    }
-    tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::MUTED, Theme::PANEL);
-    tft.drawString(it.project[0] ? it.project : (strncmp(it.id, "sys:", 4) ? "push" : "glimmer"), x, y + 7);
-    char age[8]; TimeUtil::shortDuration((long)(now - it.created), age, sizeof(age));
-    tft.setTextDatum(TR_DATUM);
-    tft.setTextColor(waitsOnUser(it.kind) ? kc : Theme::MUTED, Theme::PANEL);
-    tft.drawString(age, SCREEN_W - 14, y + 7);
-
+    tft.fillRect(20, y + 4, 6, 6, kindColor(it.kind));
     char line[48];
-    const char* head = waitsOnUser(it.kind) ? (it.kind == K_APPROVAL ? "NEEDS YOU" : "YOUR TURN")
-                                            : (it.title[0] ? it.title : kindName(it.kind));
-    if (it.progress >= 0) {
-        snprintf_P(line, sizeof(line), PSTR("%s"), head);
-        Display::pixelBar(SCREEN_W - 112, y + 26, 98, 8, it.progress, kc);
-    } else if (it.value[0]) snprintf_P(line, sizeof(line), PSTR("%s \xC2\xB7 %s"), head, it.value);
-    else if (it.body[0])    snprintf_P(line, sizeof(line), PSTR("%s \xC2\xB7 %s"), head, it.body);
-    else                    snprintf_P(line, sizeof(line), PSTR("%s"), head);
-    int maxW = it.progress >= 0 ? SCREEN_W - 136 : SCREEN_W - 36;
-    while (strlen(line) > 2 && tft.textWidth(line) > maxW) line[strlen(line) - 1] = '\0';
+    if (waitsOnUser(it.kind)) {
+        char tool[24], detail[44];
+        toolAndDetail(it.body, tool, detail);
+        snprintf_P(line, sizeof(line), PSTR("%s%s%s"), it.kind == K_APPROVAL ? "Needs you" : "Your turn",
+                   tool[0] ? " \xC2\xB7 " : "", tool);
+    } else {
+        char t[28]; snprintf(t, sizeof(t), "%s", it.title[0] ? it.title : kindName(it.kind));
+        // Sentence case reads calmer than shouty caps in a list.
+        for (char* p = t + 1; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 32;
+        if (it.progress >= 0)  snprintf_P(line, sizeof(line), PSTR("%s \xC2\xB7 %d%%"), t, it.progress);
+        else if (it.value[0])  snprintf_P(line, sizeof(line), PSTR("%s \xC2\xB7 %s"), t, it.value);
+        else                   snprintf_P(line, sizeof(line), PSTR("%s"), t);
+    }
+    Display::useFont("DMMono-11");
+    fitLine(line, 190);
     tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(Theme::INK, Theme::PANEL);
-    tft.drawString(line, 18, y + 25);
+    tft.setTextColor(Theme::INK, Theme::BG);
+    tft.drawString(line, 36, y);
+
+    char age[8]; TimeUtil::shortDuration((long)(now - it.created), age, sizeof(age));
+    for (char* p = age; *p; p++) if (*p >= 'A' && *p <= 'Z') *p += 32;
+    char meta[48];
+    const char* a = it.agent == AGENT_CLAUDE ? "claude" : it.agent == AGENT_CODEX ? "codex" : nullptr;
+    if (a && it.project[0]) snprintf_P(meta, sizeof(meta), PSTR("%s \xC2\xB7 %s \xC2\xB7 %s"), a, it.project, age);
+    else if (a)             snprintf_P(meta, sizeof(meta), PSTR("%s \xC2\xB7 %s"), a, age);
+    else if (it.project[0]) snprintf_P(meta, sizeof(meta), PSTR("%s \xC2\xB7 %s"), it.project, age);
+    else                    snprintf_P(meta, sizeof(meta), PSTR("%s"), age);
+    fitLine(meta, 190);
+    tft.setTextColor(Theme::MUTED, Theme::BG);
+    tft.drawString(meta, 36, y + 15);
 }
 
 static void paintList() {
     const Queue& q = AttentionQueue::get();
     uint32_t now = AttentionQueue::now();
     int ord[kMax], n = ordered(q, ord);
-    tft.fillRect(0, Layout::CONTENT_TOP, SCREEN_W, Layout::CONTENT_BOTTOM - Layout::CONTENT_TOP, Theme::BG);
-    // 4 rows fit (44 px on a 48 px pitch from y 28); with 5, the last line
-    // summarises the rest.
-    int shown = n > 4 ? 3 : n;
-    for (int i = 0; i < shown; i++) listRow(q.items[ord[i]], 28 + i * 48, now);
+    tft.fillRect(0, 0, SCREEN_W, Layout::CONTENT_BOTTOM, Theme::BG);
+    centerText("Silkscreen-12", "AGENTS", 10, Theme::MUTED);
+    int shown = n > 3 ? 2 : n;
+    for (int i = 0; i < shown; i++) {
+        int y = 40 + i * 60;
+        listRow(q.items[ord[i]], y, now);
+        if (i < n - 1) tft.drawFastHLine(20, y + 44, 200, Theme::LINE);
+    }
     if (n > shown) {
-        Display::useFont("DMMono-11");
-        tft.setTextDatum(TC_DATUM);
-        tft.setTextColor(Theme::MUTED, Theme::BG);
         char more[24]; snprintf_P(more, sizeof(more), PSTR("+ %d more"), n - shown);
-        tft.drawString(more, SCREEN_W / 2, 28 + shown * 48 + 14);
+        centerText("DMMono-11", more, 40 + shown * 60, Theme::MUTED);
     }
     s_listRev = AttentionQueue::revision();
     s_listMin = now / 60;
@@ -431,19 +347,9 @@ static void paintList() {
 
 void chAgentsDraw(const ChannelCtx&) {
     Display::clear();
-    char meta[16];
-    snprintf_P(meta, sizeof(meta), PSTR("%d ACTIVE"), count(AttentionQueue::get()));
-    Display::statusBar("Agents", meta, Theme::SKY);
     paintList();
 }
 
 void chAgentsTick(const ChannelCtx&) {
-    if (AttentionQueue::revision() != s_listRev) {
-        char meta[16];
-        snprintf_P(meta, sizeof(meta), PSTR("%d ACTIVE"), count(AttentionQueue::get()));
-        Display::statusMeta(meta, Theme::SKY);
-        paintList();
-    } else if (AttentionQueue::now() / 60 != s_listMin) {
-        paintList();
-    }
+    if (AttentionQueue::revision() != s_listRev || AttentionQueue::now() / 60 != s_listMin) paintList();
 }
